@@ -404,6 +404,19 @@ HTML = r"""<!doctype html>
   input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:20px;
+    background:var(--panel2);border:1px solid var(--border);color:var(--muted);font-size:12px;
+    cursor:pointer;user-select:none;transition:all .15s}
+  .chip:hover{border-color:var(--accent);color:var(--text)}
+  .chip.active{background:linear-gradient(135deg,var(--accent),#7c3aed);
+    border-color:transparent;color:#fff}
+  .chip .x{font-size:14px;line-height:1;margin-left:2px;opacity:.6}
+  .chip.active .x{opacity:.9}
+  #stylePreview{background:#0a0b11;border:1px solid var(--border);border-radius:9px;
+    color:var(--text);padding:10px 12px;font-size:12px;line-height:1.5;min-height:48px;
+    white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   button{cursor:pointer;border:none;border-radius:9px;padding:10px 16px;font-size:13px;font-weight:600;
     background:linear-gradient(135deg,var(--accent),#7c3aed);color:#fff;transition:transform .06s,filter .2s}
   button:hover{filter:brightness(1.12)}
@@ -452,27 +465,151 @@ HTML = r"""<!doctype html>
 <main>
   <section class="panel" id="formPanel">
     <h2>Inputs</h2>
-    <label for="genrePreset">Genre Preset <span class="badge">fills style</span></label>
+
+    <!-- Genre Preset (one-click fills everything below) -->
+    <label for="genrePreset">Genre Preset <span class="badge">fills all</span></label>
     <select id="genrePreset">
-      <option value="">— Pick a preset (or write your own below) —</option>
-      <option data-style="English, warm piano pop, expressive female voice, acoustic piano, rounded bass and light drums, lyrical memorable melody, unhurried phrasing, 88 BPM">Pop / Piano (warm, female)</option>
-      <option data-style="English, intimate female jazz vocal, relaxed 88 BPM, piano, tenor saxophone, upright bass, brushed drums, no guitar, spacious modern harmony, natural English phrasing">Jazz (intimate, female)</option>
-      <option data-style="English, gritty male rock vocal, driving 140 BPM, distorted electric guitar, heavy bass, powerful drums, energetic, anthemic chorus, raw edge">Rock (energetic, male)</option>
-      <option data-style="English, smooth male R&amp;B vocal, 95 BPM, deep sub-bass, smooth electric piano, trap hi-hats, sensual, laid-back groove, melodic">R&amp;B / Soul (smooth, male)</option>
-      <option data-style="English, soft female folk vocal, acoustic guitar fingerpicking, gentle mandolin, light percussion, warm upright bass, 76 BPM, intimate, storytelling">Folk / Acoustic (soft, female)</option>
-      <option data-style="English, powerful female country vocal, 120 BPM, steel guitar, fiddle, acoustic rhythm guitar, driving bass, snare backbeat, heartfelt, twangy">Country (heartfelt, female)</option>
-      <option data-style="English, ethereal female electronic vocal, 128 BPM, analog synth pads, pulsing bass, four-on-the-floor kick, shimmering arpeggios, dreamy, atmospheric">Electronic / Synthpop (dreamy, female)</option>
-      <option data-style="English, aggressive male hip-hop rap, 90 BPM, deep 808 bass, crisp snare, dark piano loop, hi-hat triplets, hard-hitting, street, confident">Hip-Hop / Rap (aggressive, male)</option>
-      <option data-style="Mandarin, 温柔女声, 流行, 钢琴伴奏, 圆润贝斯, 轻柔鼓点, 抒情旋律, 88 BPM">Mandarin Pop (温柔女声)</option>
-      <option data-style="English, soaring orchestral vocal, 70 BPM, full string section, french horns, timpani, dramatic choir, epic, cinematic, grand, sweeping">Orchestral / Cinematic (epic)</option>
-      <option data-style="English, raw male blues vocal, 100 BPM, electric guitar with overdrive, harmonica, walking bass, shuffle drums, gritty, emotional, 12-bar feel">Blues (gritty, male)</option>
-      <option data-style="English, energetic female punk vocal, 170 BPM, distorted power chords, fast bass, driving drums, rebellious, raw, short and fast">Punk (energetic, female)</option>
-      <option data-style="English, smooth female bossa nova vocal, 110 BPM, nylon classical guitar, light percussion, upright bass, gentle, romantic, Brazilian, swaying">Bossa Nova (romantic, female)</option>
-      <option data-style="English, haunting female gothic vocal, 80 BPM, dark synth pads, deep bass, slow drums, reverb-drenched guitar, melancholic, atmospheric, moody">Gothic / Dark (moody, female)</option>
-      <option data-style="English, cheerful male reggae vocal, 85 BPM, skanking guitar, organ shuffle, deep dub bass, one-drop drum pattern, sunny, laid-back, Caribbean">Reggae (sunny, male)</option>
+      <option value="">— Pick a preset (or customise below) —</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"pop","instruments":["acoustic piano","rounded bass","light drums"],"tempo":88,"mood":["warm","lyrical memorable melody","unhurried phrasing"]}'>Pop / Piano (warm, female)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"jazz","instruments":["acoustic piano","tenor saxophone","upright bass","brushed drums"],"tempo":88,"mood":["intimate","spacious modern harmony","natural phrasing"]}'>Jazz (intimate, female)</option>
+      <option data-preset='{"lang":"English","gender":"male","genre":"rock","instruments":["distorted electric guitar","heavy bass","driving drums"],"tempo":140,"mood":["energetic","anthemic","raw"]}'>Rock (energetic, male)</option>
+      <option data-preset='{"lang":"English","gender":"male","genre":"R&B","instruments":["deep sub-bass","smooth electric piano","trap hi-hats"],"tempo":95,"mood":["smooth","sensual","laid-back"]}'>R&B / Soul (smooth, male)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"folk","instruments":["acoustic guitar fingerpicking","mandolin","light percussion","warm upright bass"],"tempo":76,"mood":["soft","intimate","heartfelt"]}'>Folk / Acoustic (soft, female)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"country","instruments":["steel guitar","fiddle","acoustic rhythm guitar","driving bass"],"tempo":120,"mood":["powerful","heartfelt"]}'>Country (heartfelt, female)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"electronic","instruments":["analog synth pads","pulsing bass","four-on-the-floor kick","shimmering arpeggios"],"tempo":128,"mood":["ethereal","dreamy","atmospheric"]}'>Electronic / Synthpop (dreamy, female)</option>
+      <option data-preset='{"lang":"English","gender":"male","genre":"hip-hop","instruments":["deep 808 bass","crisp snare","dark piano loop","hi-hat triplets"],"tempo":90,"mood":["aggressive","street","confident"]}'>Hip-Hop / Rap (aggressive, male)</option>
+      <option data-preset='{"lang":"Mandarin","gender":"female","genre":"pop","instruments":["\u94a2\u7434\u4f34\u594f","\u5706\u6da6\u8d1d\u65af","\u8f7b\u67d4\u9f13\u70b9"],"tempo":88,"mood":["\u6e29\u67d4","\u6292\u60c5\u65cb\u5f8b"]}'>Mandarin Pop (\u6e29\u67d4\u5973\u58f0)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"orchestral","instruments":["full string section","french horns","timpani","dramatic choir"],"tempo":70,"mood":["soaring","epic","cinematic","grand"]}'>Orchestral / Cinematic (epic)</option>
+      <option data-preset='{"lang":"English","gender":"male","genre":"blues","instruments":["electric guitar with overdrive","harmonica","walking bass","shuffle drums"],"tempo":100,"mood":["raw","gritty","heartfelt"]}'>Blues (gritty, male)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"punk","instruments":["distorted power chords","fast bass","driving drums"],"tempo":170,"mood":["energetic","rebellious","raw"]}'>Punk (energetic, female)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"bossa nova","instruments":["nylon classical guitar","light percussion","upright bass"],"tempo":110,"mood":["smooth","romantic","atmospheric"]}'>Bossa Nova (romantic, female)</option>
+      <option data-preset='{"lang":"English","gender":"female","genre":"gothic","instruments":["dark synth pads","deep bass","slow drums","reverb-drenched guitar"],"tempo":80,"mood":["haunting","melancholic","atmospheric"]}'>Gothic / Dark (moody, female)</option>
+      <option data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["skanking guitar","organ shuffle","deep dub bass","one-drop drum pattern"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
     </select>
-    <label for="style">Style / Tags <span class="badge">free-form</span></label>
-    <textarea id="style" placeholder="English, warm piano pop, expressive female voice, acoustic piano, 88 BPM">English, warm piano pop, expressive female voice, acoustic piano, rounded bass and light drums, lyrical memorable melody, unhurried phrasing, 88 BPM</textarea>
+
+    <!-- Structured style builder -->
+    <div class="grid4">
+      <div>
+        <label for="selLang">Language</label>
+        <select id="selLang">
+          <option>English</option><option>Mandarin</option><option>Spanish</option>
+          <option>French</option><option>Japanese</option><option>Korean</option>
+          <option>Portuguese</option><option>German</option><option>Hindi</option>
+          <option>Urdu</option><option>Arabic</option><option>Russian</option>
+        </select>
+      </div>
+      <div>
+        <label for="selGender">Vocal</label>
+        <select id="selGender">
+          <option value="female">Female</option>
+          <option value="male">Male</option>
+          <option value="duet">Duet (M+F)</option>
+          <option value="choir">Choir</option>
+        </select>
+      </div>
+      <div>
+        <label for="selGenre">Genre</label>
+        <select id="selGenre">
+          <option value="pop">Pop</option><option value="jazz">Jazz</option>
+          <option value="rock">Rock</option><option value="R&B">R&B</option>
+          <option value="folk">Folk</option><option value="country">Country</option>
+          <option value="electronic">Electronic</option><option value="hip-hop">Hip-Hop</option>
+          <option value="orchestral">Orchestral</option><option value="blues">Blues</option>
+          <option value="punk">Punk</option><option value="bossa nova">Bossa Nova</option>
+          <option value="gothic">Gothic</option><option value="reggae">Reggae</option>
+          <option value="metal">Metal</option><option value="disco">Disco</option>
+          <option value="soul">Soul</option><option value="funk">Funk</option>
+          <option value="ambient">Ambient</option>
+        </select>
+      </div>
+      <div>
+        <label for="selTempo">Tempo</label>
+        <select id="selTempo">
+          <option value="60">60 — Ballad</option>
+          <option value="70">70 — Slow</option>
+          <option value="76">76 — Easy</option>
+          <option value="80">80 — Mid</option>
+          <option value="85">85 — Groove</option>
+          <option value="88" selected>88 — Warm</option>
+          <option value="95">95 — Smooth</option>
+          <option value="100">100 — Upbeat</option>
+          <option value="110">110 — Swing</option>
+          <option value="120">120 — Pop</option>
+          <option value="128">128 — Dance</option>
+          <option value="140">140 — Rock</option>
+          <option value="150">150 — Fast</option>
+          <option value="170">170 — Punk</option>
+          <option value="180">180 — Extreme</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Instruments <span class="badge">click to toggle</span></label>
+    <div class="chips" id="instrumentChips">
+      <span class="chip" data-ins="acoustic piano">acoustic piano</span>
+      <span class="chip" data-ins="electric guitar">electric guitar</span>
+      <span class="chip" data-ins="distorted electric guitar">distorted guitar</span>
+      <span class="chip" data-ins="nylon guitar">nylon guitar</span>
+      <span class="chip" data-ins="steel guitar">steel guitar</span>
+      <span class="chip" data-ins="upright bass">upright bass</span>
+      <span class="chip" data-ins="rounded bass">rounded bass</span>
+      <span class="chip" data-ins="deep sub-bass">sub-bass</span>
+      <span class="chip" data-ins="808 bass">808 bass</span>
+      <span class="chip" data-ins="light drums">light drums</span>
+      <span class="chip" data-ins="brushed drums">brushed drums</span>
+      <span class="chip" data-ins="driving drums">driving drums</span>
+      <span class="chip" data-ins="trap hi-hats">trap hi-hats</span>
+      <span class="chip" data-ins="string section">strings</span>
+      <span class="chip" data-ins="french horns">french horns</span>
+      <span class="chip" data-ins="timpani">timpani</span>
+      <span class="chip" data-ins="choir">choir</span>
+      <span class="chip" data-ins="tenor saxophone">tenor sax</span>
+      <span class="chip" data-ins="harmonica">harmonica</span>
+      <span class="chip" data-ins="fiddle">fiddle</span>
+      <span class="chip" data-ins="mandolin">mandolin</span>
+      <span class="chip" data-ins="synth pads">synth pads</span>
+      <span class="chip" data-ins="arpeggios">arpeggios</span>
+      <span class="chip" data-ins="organ">organ</span>
+      <span class="chip" data-ins="marimba">marimba</span>
+      <span class="chip" data-ins="trumpet">trumpet</span>
+      <span class="chip" data-ins="flute">flute</span>
+    </div>
+
+    <label>Mood / Phrasing <span class="badge">click to toggle</span></label>
+    <div class="chips" id="moodChips">
+      <span class="chip" data-mood="warm">warm</span>
+      <span class="chip" data-mood="intimate">intimate</span>
+      <span class="chip" data-mood="energetic">energetic</span>
+      <span class="chip" data-mood="ethereal">ethereal</span>
+      <span class="chip" data-mood="melancholic">melancholic</span>
+      <span class="chip" data-mood="anthemic">anthemic</span>
+      <span class="chip" data-mood="dreamy">dreamy</span>
+      <span class="chip" data-mood="gritty">gritty</span>
+      <span class="chip" data-mood="romantic">romantic</span>
+      <span class="chip" data-mood="epic">epic</span>
+      <span class="chip" data-mood="raw">raw</span>
+      <span class="chip" data-mood="cheerful">cheerful</span>
+      <span class="chip" data-mood="haunting">haunting</span>
+      <span class="chip" data-mood="sensual">sensual</span>
+      <span class="chip" data-mood="aggressive">aggressive</span>
+      <span class="chip" data-mood="laid-back">laid-back</span>
+      <span class="chip" data-mood="unhurried phrasing">unhurried</span>
+      <span class="chip" data-mood="lyrical memorable melody">lyrical melody</span>
+      <span class="chip" data-mood="spacious modern harmony">spacious harmony</span>
+      <span class="chip" data-mood="natural phrasing">natural phrasing</span>
+      <span class="chip" data-mood="heartfelt">heartfelt</span>
+      <span class="chip" data-mood="cinematic">cinematic</span>
+      <span class="chip" data-mood="atmospheric">atmospheric</span>
+      <span class="chip" data-mood="street">street</span>
+      <span class="chip" data-mood="rebellious">rebellious</span>
+    </div>
+
+    <label for="stylePreview">Style / Tags <span class="badge">auto-generated</span></label>
+    <div id="stylePreview"></div>
+    <input type="hidden" id="style"/>
+    <textarea id="styleEdit" placeholder="Type your own style from scratch..." style="display:none;min-height:80px"></textarea>
+    <button class="secondary" id="toggleEditBtn" style="margin-top:8px;font-size:11px;padding:6px 12px">✎ Edit manually</button>
+
     <label for="lyrics">Lyrics (use [Verse] / [Chorus] markers)</label>
     <textarea id="lyrics" placeholder="[Verse]&#10;Neon fades along the lane&#10;Footsteps keep the time of rain&#10;&#10;[Chorus]&#10;Let the day come into view&#10;Every road begins with you">[Verse]
 Neon fades along the lane
@@ -733,10 +870,92 @@ function showResult(d){
 }
 
 $('generateBtn').addEventListener('click', startGenerate);
-$('genrePreset').addEventListener('change', e=>{
-  const opt=e.target.selectedOptions[0];
-  if(opt && opt.dataset.style){ $('style').value=opt.dataset.style; }
+
+// ---- Style Builder ----
+const GENDER_WORD = {female:'female voice', male:'male voice', duet:'duet male and female vocals', choir:'choir vocals'};
+let manualEdit = false;
+
+function buildStyle() {
+  if (manualEdit) return;  // don't overwrite when user is typing manually
+  const lang = $('selLang').value;
+  const gender = $('selGender').value;
+  const genre = $('selGenre').value;
+  const tempo = $('selTempo').value;
+  const instruments = [...document.querySelectorAll('#instrumentChips .chip.active')].map(c => c.dataset.ins);
+  const moods = [...document.querySelectorAll('#moodChips .chip.active')].map(c => c.dataset.mood);
+  const parts = [lang];
+  if (GENDER_WORD[gender]) parts.push(GENDER_WORD[gender]);
+  parts.push(genre);
+  parts.push(...instruments);
+  parts.push(...moods);
+  parts.push(tempo + ' BPM');
+  const styleStr = parts.join(', ');
+  $('stylePreview').textContent = styleStr;
+  $('style').value = styleStr;
+}
+
+// Update on any control change
+['selLang','selGender','selGenre','selTempo'].forEach(id => {
+  $(id).addEventListener('change', buildStyle);
 });
+// Chip toggling
+function wireChips(containerId) {
+  $(containerId).addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    chip.classList.toggle('active');
+    buildStyle();
+  });
+}
+wireChips('instrumentChips');
+wireChips('moodChips');
+
+// Preset fills all controls
+$('genrePreset').addEventListener('change', e => {
+  const opt = e.target.selectedOptions[0];
+  if (!opt || !opt.dataset.preset) return;
+  const p = JSON.parse(opt.dataset.preset);
+  $('selLang').value = p.lang;
+  $('selGender').value = p.gender;
+  $('selGenre').value = p.genre;
+  $('selTempo').value = String(p.tempo);
+  // Clear all chips first
+  document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
+  // Activate instrument chips
+  (p.instruments || []).forEach(ins => {
+    const chip = document.querySelector(`#instrumentChips .chip[data-ins="${ins}"]`);
+    if (chip) chip.classList.add('active');
+  });
+  // Activate mood chips
+  (p.mood || []).forEach(m => {
+    const chip = document.querySelector(`#moodChips .chip[data-mood="${m}"]`);
+    if (chip) chip.classList.add('active');
+  });
+  buildStyle();
+});
+
+// Toggle manual edit mode
+$('toggleEditBtn').addEventListener('click', () => {
+  manualEdit = !manualEdit;
+  if (manualEdit) {
+    $('styleEdit').style.display = '';
+    $('styleEdit').value = $('style').value || $('stylePreview').textContent;
+    $('stylePreview').style.opacity = '0.4';
+    $('toggleEditBtn').textContent = '\u2714 Use builder';
+  } else {
+    $('styleEdit').style.display = 'none';
+    $('stylePreview').style.opacity = '';
+    $('toggleEditBtn').textContent = '\u270e Edit manually';
+    buildStyle();
+  }
+});
+// When manually editing, sync hidden field
+$('styleEdit').addEventListener('input', () => {
+  $('style').value = $('styleEdit').value;
+});
+
+// Build initial style
+buildStyle();
 $('stopBtn').addEventListener('click', async ()=>{
   if(!currentJobId){ return; }
   $('stopBtn').disabled=true;
