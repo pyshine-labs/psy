@@ -25,6 +25,7 @@ import uvicorn
 ROOT = Path(__file__).resolve().parent
 OUTPUT_ROOT = ROOT / "outputs"
 OUTPUT_ROOT.mkdir(exist_ok=True)
+ASSETS_DIR = ROOT / "assests"
 
 DEFAULT_MODELS = [
     {"id": "m-a-p/YuE2-3B", "label": "YuE2-3B (Hugging Face)", "vae": "m-a-p/YuE2-Vae"},
@@ -155,6 +156,11 @@ def worker(job_id: str, params: dict) -> None:
 # --------------------------------------------------------------------------- #
 # API endpoints
 # --------------------------------------------------------------------------- #
+@app.get("/logo")
+def logo():
+    return FileResponse(ASSETS_DIR / "pyshine_logo.png", media_type="image/png")
+
+
 @app.get("/api/options")
 def options():
     import torch
@@ -390,9 +396,10 @@ HTML = r"""<!doctype html>
     display:flex;align-items:center;gap:14px}
   header h1{margin:0;font-size:20px;letter-spacing:.3px}
   header .sub{color:var(--muted);font-size:13px;margin-left:auto}
-  .logo{width:34px;height:34px;border-radius:9px;
-    background:linear-gradient(135deg,var(--accent),var(--accent2));
-    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;color:#0a0b11}
+  .logo{width:42px;height:42px;border-radius:9px;
+    background:linear-gradient(135deg,#1e1f29,#0a0b11);overflow:hidden;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .logo img{width:100%;height:100%;object-fit:cover}
   main{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px;max-width:1500px;margin:0 auto}
   @media (max-width:980px){main{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
@@ -458,7 +465,7 @@ HTML = r"""<!doctype html>
 </head>
 <body>
 <header>
-  <div class="logo">P</div>
+  <div class="logo"><img src="/logo" alt="PSY Music Studio" /></div>
   <h1>PSY Music Studio</h1>
   <div class="sub">style + lyrics &rarr; symbolic plan &rarr; song</div>
 </header>

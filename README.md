@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assests/pyshine_logo.png" alt="PSY Music Studio" width="120" />
+</p>
+
 <h1 align="center">PSY Music Studio</h1>
 
 <p align="center">
