@@ -82,19 +82,21 @@ Twinkle, twinkle little star, how I wonder what you are.
 
 > Style: `English, male voice, pop, acoustic piano, light drums, warm, heartfelt, 88 BPM`
 
-**[⬇ Download / Play male.flac](./assests/male.flac)** (14 MB)
+<audio controls style="width:100%">
+  <source src="assests/male.flac" type="audio/flac">
+</audio>
+
+[⬇ Download male.flac](./assests/male.flac) (14 MB)
 
 ### Female vocal version
 
 > Style: `English, female voice, pop, acoustic piano, light drums, warm, lyrical melody, 88 BPM`
 
-**[⬇ Download / Play female.flac](./assests/female.flac)** (13.2 MB)
+<audio controls style="width:100%">
+  <source src="assests/female.flac" type="audio/flac">
+</audio>
 
-> ℹ️ GitHub strips `<audio>` HTML tags from READMEs, so the players above are
-> download links instead. Click to open the FLAC in your browser's audio
-> player, or right-click → Save link as. To hear both versions inline with
-> real audio players, open the WebUI locally (`./run.bat`) — the Result
-> panel shows an embedded player for every generated song.
+[⬇ Download female.flac](./assests/female.flac) (13.2 MB)
 
 ## Installation
 
