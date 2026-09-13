@@ -452,7 +452,26 @@ HTML = r"""<!doctype html>
 <main>
   <section class="panel" id="formPanel">
     <h2>Inputs</h2>
-    <label for="style">Style / Tags</label>
+    <label for="genrePreset">Genre Preset <span class="badge">fills style</span></label>
+    <select id="genrePreset">
+      <option value="">— Pick a preset (or write your own below) —</option>
+      <option data-style="English, warm piano pop, expressive female voice, acoustic piano, rounded bass and light drums, lyrical memorable melody, unhurried phrasing, 88 BPM">Pop / Piano (warm, female)</option>
+      <option data-style="English, intimate female jazz vocal, relaxed 88 BPM, piano, tenor saxophone, upright bass, brushed drums, no guitar, spacious modern harmony, natural English phrasing">Jazz (intimate, female)</option>
+      <option data-style="English, gritty male rock vocal, driving 140 BPM, distorted electric guitar, heavy bass, powerful drums, energetic, anthemic chorus, raw edge">Rock (energetic, male)</option>
+      <option data-style="English, smooth male R&amp;B vocal, 95 BPM, deep sub-bass, smooth electric piano, trap hi-hats, sensual, laid-back groove, melodic">R&amp;B / Soul (smooth, male)</option>
+      <option data-style="English, soft female folk vocal, acoustic guitar fingerpicking, gentle mandolin, light percussion, warm upright bass, 76 BPM, intimate, storytelling">Folk / Acoustic (soft, female)</option>
+      <option data-style="English, powerful female country vocal, 120 BPM, steel guitar, fiddle, acoustic rhythm guitar, driving bass, snare backbeat, heartfelt, twangy">Country (heartfelt, female)</option>
+      <option data-style="English, ethereal female electronic vocal, 128 BPM, analog synth pads, pulsing bass, four-on-the-floor kick, shimmering arpeggios, dreamy, atmospheric">Electronic / Synthpop (dreamy, female)</option>
+      <option data-style="English, aggressive male hip-hop rap, 90 BPM, deep 808 bass, crisp snare, dark piano loop, hi-hat triplets, hard-hitting, street, confident">Hip-Hop / Rap (aggressive, male)</option>
+      <option data-style="Mandarin, 温柔女声, 流行, 钢琴伴奏, 圆润贝斯, 轻柔鼓点, 抒情旋律, 88 BPM">Mandarin Pop (温柔女声)</option>
+      <option data-style="English, soaring orchestral vocal, 70 BPM, full string section, french horns, timpani, dramatic choir, epic, cinematic, grand, sweeping">Orchestral / Cinematic (epic)</option>
+      <option data-style="English, raw male blues vocal, 100 BPM, electric guitar with overdrive, harmonica, walking bass, shuffle drums, gritty, emotional, 12-bar feel">Blues (gritty, male)</option>
+      <option data-style="English, energetic female punk vocal, 170 BPM, distorted power chords, fast bass, driving drums, rebellious, raw, short and fast">Punk (energetic, female)</option>
+      <option data-style="English, smooth female bossa nova vocal, 110 BPM, nylon classical guitar, light percussion, upright bass, gentle, romantic, Brazilian, swaying">Bossa Nova (romantic, female)</option>
+      <option data-style="English, haunting female gothic vocal, 80 BPM, dark synth pads, deep bass, slow drums, reverb-drenched guitar, melancholic, atmospheric, moody">Gothic / Dark (moody, female)</option>
+      <option data-style="English, cheerful male reggae vocal, 85 BPM, skanking guitar, organ shuffle, deep dub bass, one-drop drum pattern, sunny, laid-back, Caribbean">Reggae (sunny, male)</option>
+    </select>
+    <label for="style">Style / Tags <span class="badge">free-form</span></label>
     <textarea id="style" placeholder="English, warm piano pop, expressive female voice, acoustic piano, 88 BPM">English, warm piano pop, expressive female voice, acoustic piano, rounded bass and light drums, lyrical memorable melody, unhurried phrasing, 88 BPM</textarea>
     <label for="lyrics">Lyrics (use [Verse] / [Chorus] markers)</label>
     <textarea id="lyrics" placeholder="[Verse]&#10;Neon fades along the lane&#10;Footsteps keep the time of rain&#10;&#10;[Chorus]&#10;Let the day come into view&#10;Every road begins with you">[Verse]
@@ -714,6 +733,10 @@ function showResult(d){
 }
 
 $('generateBtn').addEventListener('click', startGenerate);
+$('genrePreset').addEventListener('change', e=>{
+  const opt=e.target.selectedOptions[0];
+  if(opt && opt.dataset.style){ $('style').value=opt.dataset.style; }
+});
 $('stopBtn').addEventListener('click', async ()=>{
   if(!currentJobId){ return; }
   $('stopBtn').disabled=true;
