@@ -24,6 +24,10 @@ outputss/
 *.flac
 *.wav
 *.mp3
+# Keep demo audio in the assests/ folder for the README
+!assests/*.flac
+!assests/*.wav
+!assests/*.mp3
 .DS_Store
 
 # Local Hugging Face model cache (do not commit multi-GiB weights)

@@ -54,6 +54,46 @@ convenience scripts.
 - **Windows-safe**: uses the Selector event loop to avoid cosmetic
   `WinError 10054` connection-reset noise from SSE clients.
 
+## Example: Twinkle Twinkle, Little Star
+
+Below is a complete example using the classic nursery rhyme. Both versions
+were generated with PSY Music Studio using the same lyrics but different
+vocal styles. Click play to hear them right in the README.
+
+**Lyrics used:**
+
+```
+[Verse]
+Twinkle, twinkle, little star, how I wonder what you are.
+Up above the world so high, like a diamond in the sky.
+Twinkle, twinkle, little star, how I wonder what you are.
+
+[Chorus]
+When the blazing sun is set, and the grass with dew is wet.
+Then you show your little light, twinkle, twinkle all the night.
+Twinkle, twinkle little star, how I wonder what you are.
+```
+
+### Male vocal version
+
+> Style: `English, male voice, pop, acoustic piano, light drums, warm, heartfelt, 88 BPM`
+
+<audio controls style="width:100%">
+  <source src="assests/male.flac" type="audio/flac">
+  Your browser does not support the audio element.
+  <a href="assests/male.flac">Download male.flac</a>
+</audio>
+
+### Female vocal version
+
+> Style: `English, female voice, pop, acoustic piano, light drums, warm, lyrical melody, 88 BPM`
+
+<audio controls style="width:100%">
+  <source src="assests/female.flac" type="audio/flac">
+  Your browser does not support the audio element.
+  <a href="assests/female.flac">Download female.flac</a>
+</audio>
+
 ## Installation
 
 You need **Python 3.10+** and (optionally, but strongly recommended) an
@@ -190,6 +230,7 @@ psy/
 ├── docs/                 # YuE2 documentation
 ├── skills/               # YuE2 skill / agent definitions
 ├── assets/               # Logo + architecture images
+├── assests/              # Demo audio (male.flac, female.flac) for README
 ├── licenses/             # Third-party license texts
 ├── pyproject.toml        # Installs the bundled yue2 package
 ├── LICENSE               # Apache 2.0 (inherited from YuE2)
