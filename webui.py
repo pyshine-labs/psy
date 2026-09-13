@@ -91,11 +91,15 @@ JOB_RUN_LOCK = threading.Lock()
 
 def worker(job_id: str, params: dict) -> None:
     job = JOBS[job_id]
+    cancel_event = job["cancel"]
     capture = StreamCapture(job_id)
     old_stderr = sys.stderr
     sys.stderr = capture
     try:
         with JOB_RUN_LOCK:
+            if cancel_event.is_set():
+                _push(job_id, {"type": "log", "line": "Cancelled before start"})
+                return
             _push(job_id, {"type": "log", "line": "Loading yue2 + torch... (first run is slow)"})
             from yue2 import YuE2Pipeline
             pipe = YuE2Pipeline.from_pretrained(
@@ -115,7 +119,11 @@ def worker(job_id: str, params: dict) -> None:
                 out_dir = OUTPUT_ROOT / job_id
                 out_dir.mkdir(parents=True, exist_ok=True)
                 _push(job_id, {"type": "stage", "name": "generate", "status": "running"})
-                song = pipe(**request_kwargs)
+                # The pipeline checks `cancelled` between tokens and between stages;
+                # raising InterruptedError is how yue2 signals a graceful cancel.
+                song = pipe(**request_kwargs, cancelled=cancel_event.is_set)
+                if cancel_event.is_set():
+                    raise InterruptedError("Cancelled after completion")
                 song.save_artifacts(out_dir)
                 audio_path = out_dir / "audio.flac"
                 job["audio_path"] = str(audio_path)
@@ -128,6 +136,9 @@ def worker(job_id: str, params: dict) -> None:
                     pipe.close()
                 except Exception:
                     pass
+    except InterruptedError as e:
+        _push(job_id, {"type": "log", "line": f"Cancelled: {e}"})
+        _push(job_id, {"type": "cancelled", "message": str(e)})
     except Exception as e:
         tb = traceback.format_exc()
         job["error"] = str(e)
@@ -260,6 +271,44 @@ def job_stream(job_id: str):
         "Connection": "keep-alive",
     }
     return StreamingResponse(event_gen(), media_type="text/event-stream", headers=headers)
+
+
+def _kill_thread(thread: threading.Thread) -> bool:
+    """Inject InterruptedError into a running thread as a last-resort stop.
+
+    Returns True if the exception was delivered."""
+    if not thread.is_alive():
+        return False
+    import ctypes
+    tid = thread.ident
+    if tid is None:
+        return False
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(tid), ctypes.py_object(InterruptedError))
+    return res == 1
+
+
+@app.post("/api/jobs/{job_id}/stop")
+def job_stop(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Unknown job"}, status_code=404)
+    if not job.get("thread") or not job["thread"].is_alive():
+        return {"ok": True, "was_running": False}
+    # 1) Graceful: set the cancel event. The pipeline checks this between
+    #    tokens and between stages and raises InterruptedError on its own.
+    job["cancel"].set()
+    # 2) Give the graceful path 1.5 s to take effect.
+    job["thread"].join(timeout=1.5)
+    # 3) If still alive (stuck in model loading or a long CUDA kernel),
+    #    inject an exception directly into the thread.
+    killed = False
+    if job["thread"].is_alive():
+        killed = _kill_thread(job["thread"])
+        if killed:
+            job["thread"].join(timeout=2.0)
+    return {"ok": True, "was_running": True, "forced_kill": killed,
+            "still_alive": job["thread"].is_alive()}
 
 
 @app.get("/api/jobs/{job_id}/audio")
@@ -640,6 +689,11 @@ function handleEvent(d){
     $('errBox').textContent=d.message+'\n\n'+(d.traceback||'');
     $('generateBtn').disabled=false;
     $('stopBtn').disabled=true;
+  } else if(d.type==='cancelled'){
+    setStatus('err','Cancelled');
+    logLine('>> '+d.message,'stage-line err');
+    $('generateBtn').disabled=false;
+    $('stopBtn').disabled=true;
   } else if(d.type==='end'){
     if(eventSource){ eventSource.close(); eventSource=null; }
   }
@@ -660,11 +714,24 @@ function showResult(d){
 }
 
 $('generateBtn').addEventListener('click', startGenerate);
-$('stopBtn').addEventListener('click', ()=>{
-  // Best-effort stop: close SSE and disable button. The pipeline reads `cancelled` only between tokens.
-  if(eventSource){ eventSource.close(); eventSource=null; }
-  setStatus('err','Stopped (model may still finish current step)');
+$('stopBtn').addEventListener('click', async ()=>{
+  if(!currentJobId){ return; }
   $('stopBtn').disabled=true;
+  setStatus('err','Stopping...');
+  try{
+    const r=await fetch(`/api/jobs/${currentJobId}/stop`,{method:'POST'});
+    const j=await r.json();
+    if(j.forced_kill){
+      logLine('>> Thread killed (was stuck in a non-interruptible step)','stage-line err');
+    }
+    if(j.still_alive){
+      logLine('>> Warning: thread still alive, may block next run','stage-line err');
+    }
+  }catch(e){
+    logLine('>> Stop request failed: '+e,'stage-line err');
+  }
+  if(eventSource){ eventSource.close(); eventSource=null; }
+  setStatus('err','Stopped');
   $('generateBtn').disabled=false;
 });
 
