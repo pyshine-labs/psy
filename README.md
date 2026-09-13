@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/logo.png" alt="PSY Music Studio" width="150" />
-</p>
-
 <h1 align="center">PSY Music Studio</h1>
 
 <p align="center">
@@ -9,6 +5,10 @@
   <a href="https://github.com/multimodal-art-projection/YuE">YuE2</a> pipeline.
   Pick a model, enter style + lyrics, watch live progress, and play, download,
   or open the generated song directly from the UI.
+</p>
+
+<p align="center">
+  <img src="psy.PNG" alt="PSY Music Studio demo" width="100%" />
 </p>
 
 <p align="center">
@@ -209,12 +209,6 @@ the **YuE2 / Multimodal Art Projection (m-a-p)** team:
 - **YuE2 models on Hugging Face:**
   - <https://huggingface.co/m-a-p/YuE2-3B>
   - <https://huggingface.co/m-a-p/YuE2-Vae>
-
-This repository:
-
-- Inherits the **Apache 2.0** license from YuE2 (see [`LICENSE`](./LICENSE)).
-- Does **not** modify any YuE2 source file.
-- Adds only three new files: `webui.py`, `run.bat`, `run.sh`, plus this README.
 
 If you use PSY Music Studio in research or product work, please cite the
 YuE2 model and the m-a-p team as the source of the generation pipeline.
