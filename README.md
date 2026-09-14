@@ -25,9 +25,10 @@
 ---
 
 <div align="center">
-<iframe width="560" height="315" src="https://www.youtube.com/embed/9RxxBSqbKLE" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+
+[![Watch the video](https://img.youtube.com/vi/9RxxBSqbKLE/maxresdefault.jpg)](https://www.youtube.com/watch?v=9RxxBSqbKLE)
+
 </div>
-<br>
 
 ## Overview
 
