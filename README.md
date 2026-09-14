@@ -24,6 +24,11 @@
 
 ---
 
+<div align="center">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/9RxxBSqbKLE" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+</div>
+<br>
+
 ## Overview
 
 **PSY Music Studio** is a single-file FastAPI web UI that wraps the
