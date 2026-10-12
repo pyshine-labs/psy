@@ -496,6 +496,7 @@ HTML = r"""<!doctype html>
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}
   .panel h2{margin:0 0 12px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  .hint{font-size:11px;color:var(--muted);opacity:.75;margin:3px 0 0;line-height:1.4}
   input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--border);
     border-radius:9px;color:var(--text);padding:9px 11px;font-size:13px;font-family:inherit}
   textarea{min-height:130px;resize:vertical;line-height:1.45}
@@ -574,19 +575,19 @@ HTML = r"""<!doctype html>
       <option value="" data-i18n="presetPlaceholder">— Pick a preset (or customise below) —</option>
       <option data-zh="流行 / 钢琴（温暖女声）" data-preset='{"lang":"English","gender":"female","genre":"pop","instruments":["acoustic piano","rounded bass","light drums"],"tempo":88,"mood":["warm","lyrical memorable melody","unhurried phrasing"]}'>Pop / Piano (warm, female)</option>
       <option data-zh="爵士（亲密女声）" data-preset='{"lang":"English","gender":"female","genre":"jazz","instruments":["acoustic piano","tenor saxophone","upright bass","brushed drums"],"tempo":88,"mood":["intimate","spacious modern harmony","natural phrasing"]}'>Jazz (intimate, female)</option>
-      <option data-zh="摇滚（活力男声）" data-preset='{"lang":"English","gender":"male","genre":"rock","instruments":["distorted electric guitar","heavy bass","driving drums"],"tempo":140,"mood":["energetic","anthemic","raw"]}'>Rock (energetic, male)</option>
-      <option data-zh="节奏布鲁斯 / 灵魂（丝滑男声）" data-preset='{"lang":"English","gender":"male","genre":"R&B","instruments":["deep sub-bass","smooth electric piano","trap hi-hats"],"tempo":95,"mood":["smooth","sensual","laid-back"]}'>R&B / Soul (smooth, male)</option>
-      <option data-zh="民谣 / 原声（轻柔女声）" data-preset='{"lang":"English","gender":"female","genre":"folk","instruments":["acoustic guitar fingerpicking","mandolin","light percussion","warm upright bass"],"tempo":76,"mood":["soft","intimate","heartfelt"]}'>Folk / Acoustic (soft, female)</option>
-      <option data-zh="乡村（真挚女声）" data-preset='{"lang":"English","gender":"female","genre":"country","instruments":["steel guitar","fiddle","acoustic rhythm guitar","driving bass"],"tempo":120,"mood":["powerful","heartfelt"]}'>Country (heartfelt, female)</option>
-      <option data-zh="电子 / 合成器流行（梦幻女声）" data-preset='{"lang":"English","gender":"female","genre":"electronic","instruments":["analog synth pads","pulsing bass","four-on-the-floor kick","shimmering arpeggios"],"tempo":128,"mood":["ethereal","dreamy","atmospheric"]}'>Electronic / Synthpop (dreamy, female)</option>
-      <option data-zh="嘻哈 / 说唱（凶猛男声）" data-preset='{"lang":"English","gender":"male","genre":"hip-hop","instruments":["deep 808 bass","crisp snare","dark piano loop","hi-hat triplets"],"tempo":90,"mood":["aggressive","street","confident"]}'>Hip-Hop / Rap (aggressive, male)</option>
-      <option data-zh="华语流行（温柔女声）" data-preset='{"lang":"Mandarin","gender":"female","genre":"pop","instruments":["\u94a2\u7434\u4f34\u594f","\u5706\u6da6\u8d1d\u65af","\u8f7b\u67d4\u9f13\u70b9"],"tempo":88,"mood":["\u6e29\u67d4","\u6292\u60c5\u65cb\u5f8b"]}'>Mandarin Pop (\u6e29\u67d4\u5973\u58f0)</option>
-      <option data-zh="管弦 / 电影配乐（史诗）" data-preset='{"lang":"English","gender":"female","genre":"orchestral","instruments":["full string section","french horns","timpani","dramatic choir"],"tempo":70,"mood":["soaring","epic","cinematic","grand"]}'>Orchestral / Cinematic (epic)</option>
-      <option data-zh="布鲁斯（粗粝男声）" data-preset='{"lang":"English","gender":"male","genre":"blues","instruments":["electric guitar with overdrive","harmonica","walking bass","shuffle drums"],"tempo":100,"mood":["raw","gritty","heartfelt"]}'>Blues (gritty, male)</option>
-      <option data-zh="朋克（活力女声）" data-preset='{"lang":"English","gender":"female","genre":"punk","instruments":["distorted power chords","fast bass","driving drums"],"tempo":170,"mood":["energetic","rebellious","raw"]}'>Punk (energetic, female)</option>
-      <option data-zh="波萨诺瓦（浪漫女声）" data-preset='{"lang":"English","gender":"female","genre":"bossa nova","instruments":["nylon classical guitar","light percussion","upright bass"],"tempo":110,"mood":["smooth","romantic","atmospheric"]}'>Bossa Nova (romantic, female)</option>
-      <option data-zh="哥特 / 暗黑（忧郁女声）" data-preset='{"lang":"English","gender":"female","genre":"gothic","instruments":["dark synth pads","deep bass","slow drums","reverb-drenched guitar"],"tempo":80,"mood":["haunting","melancholic","atmospheric"]}'>Gothic / Dark (moody, female)</option>
-      <option data-zh="雷鬼（阳光男声）" data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["skanking guitar","organ shuffle","deep dub bass","one-drop drum pattern"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
+      <option data-zh="摇滚（活力男声）" data-preset='{"lang":"English","gender":"male","genre":"rock","instruments":["distorted electric guitar","rounded bass","driving drums"],"tempo":140,"mood":["energetic","anthemic","raw"]}'>Rock (energetic, male)</option>
+      <option data-zh="节奏布鲁斯 / 灵魂（丝滑男声）" data-preset='{"lang":"English","gender":"male","genre":"R&B","instruments":["deep sub-bass","acoustic piano","trap hi-hats"],"tempo":95,"mood":["sensual","laid-back","warm"]}'>R&B / Soul (smooth, male)</option>
+      <option data-zh="民谣 / 原声（轻柔女声）" data-preset='{"lang":"English","gender":"female","genre":"folk","instruments":["steel guitar","mandolin","light drums","upright bass"],"tempo":76,"mood":["intimate","heartfelt","warm"]}'>Folk / Acoustic (soft, female)</option>
+      <option data-zh="乡村（真挚女声）" data-preset='{"lang":"English","gender":"female","genre":"country","instruments":["steel guitar","fiddle","electric guitar","light drums"],"tempo":120,"mood":["anthemic","heartfelt"]}'>Country (heartfelt, female)</option>
+      <option data-zh="电子 / 合成器流行（梦幻女声）" data-preset='{"lang":"English","gender":"female","genre":"electronic","instruments":["synth pads","deep sub-bass","driving drums","arpeggios"],"tempo":128,"mood":["ethereal","dreamy","atmospheric"]}'>Electronic / Synthpop (dreamy, female)</option>
+      <option data-zh="嘻哈 / 说唱（凶猛男声）" data-preset='{"lang":"English","gender":"male","genre":"hip-hop","instruments":["808 bass","trap hi-hats","acoustic piano"],"tempo":90,"mood":["aggressive","street"]}'>Hip-Hop / Rap (aggressive, male)</option>
+      <option data-zh="华语流行（温柔女声）" data-preset='{"lang":"Mandarin","gender":"female","genre":"pop","instruments":["acoustic piano","rounded bass","light drums"],"tempo":88,"mood":["warm","lyrical memorable melody"]}'>Mandarin Pop (温柔女声)</option>
+      <option data-zh="管弦 / 电影配乐（史诗）" data-preset='{"lang":"English","gender":"female","genre":"orchestral","instruments":["string section","french horns","timpani","choir"],"tempo":70,"mood":["epic","cinematic","anthemic"]}'>Orchestral / Cinematic (epic)</option>
+      <option data-zh="布鲁斯（粗粝男声）" data-preset='{"lang":"English","gender":"male","genre":"blues","instruments":["electric guitar","harmonica","upright bass","brushed drums"],"tempo":100,"mood":["raw","gritty","heartfelt"]}'>Blues (gritty, male)</option>
+      <option data-zh="朋克（活力女声）" data-preset='{"lang":"English","gender":"female","genre":"punk","instruments":["distorted electric guitar","driving drums"],"tempo":170,"mood":["energetic","rebellious","raw"]}'>Punk (energetic, female)</option>
+      <option data-zh="波萨诺瓦（浪漫女声）" data-preset='{"lang":"English","gender":"female","genre":"bossa nova","instruments":["nylon guitar","light drums","upright bass"],"tempo":110,"mood":["romantic","atmospheric","laid-back"]}'>Bossa Nova (romantic, female)</option>
+      <option data-zh="哥特 / 暗黑（忧郁女声）" data-preset='{"lang":"English","gender":"female","genre":"gothic","instruments":["synth pads","deep sub-bass","light drums","electric guitar"],"tempo":80,"mood":["haunting","melancholic","atmospheric"]}'>Gothic / Dark (moody, female)</option>
+      <option data-zh="雷鬼（阳光男声）" data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["electric guitar","organ","rounded bass","light drums"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
     </select>
 
     <!-- Song Template: loads a complete sample song (style + lyrics) -->
@@ -622,6 +623,7 @@ HTML = r"""<!doctype html>
           <option value="Arabic" data-zh="阿拉伯语">Arabic</option>
           <option value="Russian" data-zh="俄语">Russian</option>
         </select>
+        <p class="hint" data-i18n="hintLang">Language the model sings in</p>
       </div>
       <div>
         <label for="selGender" data-i18n="labelVocal">Vocal</label>
@@ -631,6 +633,7 @@ HTML = r"""<!doctype html>
           <option value="duet" data-i18n="vocalDuet">Duet (M+F)</option>
           <option value="choir" data-i18n="vocalChoir">Choir</option>
         </select>
+        <p class="hint" data-i18n="hintVocal">Who sings: solo female / male, duet or choir</p>
       </div>
       <div>
         <label for="selGenre" data-i18n="labelGenre">Genre</label>
@@ -646,6 +649,7 @@ HTML = r"""<!doctype html>
           <option value="soul" data-zh="灵魂">Soul</option><option value="funk" data-zh="放克">Funk</option>
           <option value="ambient" data-zh="氛围">Ambient</option>
         </select>
+        <p class="hint" data-i18n="hintGenre">Overall music style of the song</p>
       </div>
       <div>
         <label for="selTempo" data-i18n="labelTempo">Tempo</label>
@@ -666,10 +670,12 @@ HTML = r"""<!doctype html>
           <option value="170" data-zh="170 — 朋克">170 — Punk</option>
           <option value="180" data-zh="180 — 极限">180 — Extreme</option>
         </select>
+        <p class="hint" data-i18n="hintTempo">Beats per minute — ballads 60–80, pop 88–120, dance ~128, rock 130–150, punk 160–180</p>
       </div>
     </div>
 
     <label><span data-i18n="labelInstruments">Instruments</span> <span class="badge" data-i18n="badgeToggle">click to toggle</span></label>
+    <p class="hint" data-i18n="hintInstr">Pick 2–4 instruments; English tags work best</p>
     <div class="chips" id="instrumentChips">
       <span class="chip" data-zh="钢琴" data-ins="acoustic piano">acoustic piano</span>
       <span class="chip" data-zh="电吉他" data-ins="electric guitar">electric guitar</span>
@@ -701,6 +707,7 @@ HTML = r"""<!doctype html>
     </div>
 
     <label><span data-i18n="labelMood">Mood / Phrasing</span> <span class="badge" data-i18n="badgeToggle">click to toggle</span></label>
+    <p class="hint" data-i18n="hintMood">Feeling and singing style of the performance</p>
     <div class="chips" id="moodChips">
       <span class="chip" data-zh="温暖" data-mood="warm">warm</span>
       <span class="chip" data-zh="亲密" data-mood="intimate">intimate</span>
@@ -730,12 +737,14 @@ HTML = r"""<!doctype html>
     </div>
 
     <label for="stylePreview"><span data-i18n="labelStyle">Style / Tags</span> <span class="badge" data-i18n="badgeAuto">auto-generated</span></label>
+    <p class="hint" data-i18n="hintStyle">Auto-built from the options above — click the ✏️ button to edit it manually</p>
     <div id="stylePreview"></div>
     <input type="hidden" id="style"/>
     <textarea id="styleEdit" data-i18n-ph="phStyleEdit" placeholder="Type your own style from scratch..." style="display:none;min-height:80px"></textarea>
     <button class="secondary" id="toggleEditBtn" style="margin-top:8px;font-size:11px;padding:6px 12px">✎ Edit manually</button>
 
     <label for="lyrics" data-i18n="labelLyrics">Lyrics (use [Verse] / [Chorus] markers)</label>
+    <p class="hint" data-i18n="hintLyrics">Structure the song with markers: [Verse] / [Chorus] / [Bridge] / [Outro] — try a Song Template for a full example</p>
     <textarea id="lyrics" placeholder="[Verse]&#10;Neon fades along the lane&#10;Footsteps keep the time of rain&#10;&#10;[Chorus]&#10;Let the day come into view&#10;Every road begins with you">[Verse]
 Neon fades along the lane
 Footsteps keep the time of rain
@@ -868,6 +877,13 @@ const I18N = {
     phStyleEdit:'Type your own style from scratch...',
     btnEditManually:'\u270e Edit manually', btnUseBuilder:'\u2714 Use builder',
     labelLyrics:'Lyrics (use [Verse] / [Chorus] markers)',
+    hintLang:'Language the model sings in', hintVocal:'Who sings: solo female / male, duet or choir',
+    hintGenre:'Overall music style of the song',
+    hintTempo:'Beats per minute — ballads 60–80, pop 88–120, dance ~128, rock 130–150, punk 160–180',
+    hintInstr:'Pick 2\u20134 instruments; English tags work best',
+    hintMood:'Feeling and singing style of the performance',
+    hintStyle:'Auto-built from the options above \u2014 click the \u270f\ufe0f button to edit it manually',
+    hintLyrics:'Structure the song with markers: [Verse] / [Chorus] / [Bridge] / [Outro] \u2014 try a Song Template for a full example',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -907,6 +923,13 @@ const I18N = {
     phStyleEdit:'从头输入你的自定义风格...',
     btnEditManually:'\u270e 手动编辑', btnUseBuilder:'\u2714 使用构建器',
     labelLyrics:'歌词（使用 [Verse] / [Chorus] 标记）',
+    hintLang:'模型演唱的语言', hintVocal:'演唱者：女声 / 男声独唱、对唱或合唱',
+    hintGenre:'歌曲的整体音乐风格',
+    hintTempo:'每分钟节拍：叙事曲 60\u201380，流行 88\u2013120，舞曲约 128，摇滚 130\u2013150，朋克 160\u2013180',
+    hintInstr:'选择 2\u20134 种乐器；英文标签效果最佳',
+    hintMood:'演唱的情绪与风格',
+    hintStyle:'由上方选项自动生成 \u2014 点击 \u270f\ufe0f 按钮可手动编辑',
+    hintLyrics:'使用 [Verse] / [Chorus] / [Bridge] / [Outro] 标记构建歌曲段落 \u2014 可尝试歌曲模板查看完整示例',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
