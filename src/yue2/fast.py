@@ -226,7 +226,7 @@ class _Worker:
         self.lock = threading.Lock()
         self.temp = tempfile.TemporaryDirectory(prefix="yue2-vllm-")
         self.log_path = Path(self.temp.name) / "worker.log"
-        self.log = self.log_path.open("w+")
+        self.log = self.log_path.open("w+", encoding="utf-8")
         env = os.environ.copy()
         env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
         self.process = subprocess.Popen([sys.executable, "-m", "yue2.fast", "--worker"],

@@ -25,7 +25,10 @@ def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+    # encoding is mandatory on Windows: the locale default (cp1252) cannot
+    # represent non-ASCII lyrics/tags (e.g. Chinese) and raises UnicodeEncodeError.
+    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+                         encoding="utf-8")
     os.replace(temporary, path)
 
 

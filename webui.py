@@ -25,6 +25,8 @@ import uvicorn
 ROOT = Path(__file__).resolve().parent
 OUTPUT_ROOT = ROOT / "outputs"
 OUTPUT_ROOT.mkdir(exist_ok=True)
+PROFILE_DIR = ROOT / "profiles"
+PROFILE_DIR.mkdir(exist_ok=True)
 ASSETS_DIR = ROOT / "assests"
 
 DEFAULT_MODELS = [
@@ -103,13 +105,17 @@ def worker(job_id: str, params: dict) -> None:
                 return
             _push(job_id, {"type": "log", "line": "Loading yue2 + torch... (first run is slow)"})
             from yue2 import YuE2Pipeline
-            pipe = YuE2Pipeline.from_pretrained(
-                params["model"], vae=params["vae"], device=params["device"],
-                backend=params["backend"], quantization=params["quantization"],
-                memory_budget_gib=params["budget"], offload_ar=params["offload_ar"],
-                progress=True,
-            )
-            try:
+            import torch
+
+            def build_pipe(quantization, offload_ar, budget):
+                return YuE2Pipeline.from_pretrained(
+                    params["model"], vae=params["vae"], device=params["device"],
+                    backend=params["backend"], quantization=quantization,
+                    memory_budget_gib=budget, offload_ar=offload_ar,
+                    progress=True,
+                )
+
+            def run_song(pipe):
                 request_kwargs = {"style": params["style"], "lyrics": params["lyrics"], "cot": params["cot"]}
                 if params.get("seed") not in (None, ""):
                     request_kwargs["seed"] = int(params["seed"])
@@ -126,17 +132,54 @@ def worker(job_id: str, params: dict) -> None:
                 if cancel_event.is_set():
                     raise InterruptedError("Cancelled after completion")
                 song.save_artifacts(out_dir)
-                audio_path = out_dir / "audio.flac"
-                job["audio_path"] = str(audio_path)
-                job["out_dir"] = str(out_dir)
-                job["truncated"] = song.truncated
-                _push(job_id, {"type": "complete", "audio": str(audio_path),
-                               "truncated": song.truncated, "output_dir": str(out_dir)})
-            finally:
+                return song, out_dir
+
+            on_cuda = str(params["device"]).startswith("cuda")
+            if on_cuda:
+                free_gib = torch.cuda.mem_get_info()[0] / 2**30
+                if free_gib < 10.5 and params["quantization"] == "none":
+                    _push(job_id, {"type": "log", "line":
+                        f"Free VRAM is low ({free_gib:.1f} GiB). If generation runs out of "
+                        "memory it will auto-retry with fp8 weights + AR modules offloaded to system RAM."})
+            # First attempt uses the user's settings; on CUDA OOM the job is
+            # retried with fp8 (bf16 originals kept in system RAM) and AR
+            # modules offloaded to RAM instead of failing the whole job.
+            attempts = [(params["quantization"], params["offload_ar"], params["budget"])]
+            if on_cuda:
+                fallback_q = params["quantization"]
+                if fallback_q == "none":
+                    try:
+                        if torch.cuda.get_device_capability() >= (8, 9):
+                            fallback_q = "fp8"
+                    except Exception:
+                        pass
+                attempts.append((fallback_q, True, min(float(params["budget"]), 12.0)))
+            song = out_dir = None
+            for index, (quant, offload, budget) in enumerate(attempts):
+                pipe = build_pipe(quant, offload, budget)
                 try:
-                    pipe.close()
-                except Exception:
-                    pass
+                    song, out_dir = run_song(pipe)
+                    break
+                except torch.cuda.OutOfMemoryError:
+                    torch.cuda.empty_cache()
+                    if index + 1 >= len(attempts):
+                        raise RuntimeError(
+                            "CUDA out of memory even with fp8 + AR offload to system RAM. "
+                            "Close VRAM-heavy apps (video editor, browser) or shorten the lyrics."
+                        ) from None
+                    _push(job_id, {"type": "log", "line":
+                        "CUDA out of memory - retrying with fp8 weights + AR modules offloaded to system RAM..."})
+                finally:
+                    try:
+                        pipe.close()
+                    except Exception:
+                        pass
+            audio_path = out_dir / "audio.flac"
+            job["audio_path"] = str(audio_path)
+            job["out_dir"] = str(out_dir)
+            job["truncated"] = song.truncated
+            _push(job_id, {"type": "complete", "audio": str(audio_path),
+                           "truncated": song.truncated, "output_dir": str(out_dir)})
     except InterruptedError as e:
         _push(job_id, {"type": "log", "line": f"Cancelled: {e}"})
         _push(job_id, {"type": "cancelled", "message": str(e)})
@@ -373,6 +416,54 @@ def list_jobs():
 
 
 # --------------------------------------------------------------------------- #
+# Profiles: named JSON snapshots of the full form state, shared across devices.
+# --------------------------------------------------------------------------- #
+_PROFILE_NAME_RE = re.compile(r"[A-Za-z0-9_\- \u4e00-\u9fff]{1,64}")
+
+
+def _profile_path(name: str):
+    name = (name or "").strip()
+    if not _PROFILE_NAME_RE.fullmatch(name):
+        return None
+    return PROFILE_DIR / f"{name}.json"
+
+
+@app.get("/api/profiles")
+def list_profiles():
+    files = sorted(PROFILE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return {"profiles": [p.stem for p in files]}
+
+
+@app.post("/api/profiles/{name}")
+async def save_profile(name: str, request: dict):
+    path = _profile_path(name)
+    data = (request or {}).get("data")
+    if path is None:
+        return JSONResponse({"error": "Invalid profile name"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "Missing profile data"}, status_code=400)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "name": path.stem}
+
+
+@app.get("/api/profiles/{name}")
+def load_profile(name: str):
+    path = _profile_path(name)
+    if path is None or not path.is_file():
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+    return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
+
+
+@app.delete("/api/profiles/{name}")
+def delete_profile(name: str):
+    path = _profile_path(name)
+    if path is None or not path.is_file():
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+    path.unlink()
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
 # HTML UI (single page, vanilla JS, no build step)
 # --------------------------------------------------------------------------- #
 HTML = r"""<!doctype html>
@@ -467,157 +558,169 @@ HTML = r"""<!doctype html>
 <header>
   <div class="logo"><img src="/logo" alt="PSY Music Studio" /></div>
   <h1>PSY Music Studio</h1>
-  <div class="sub">style + lyrics &rarr; symbolic plan &rarr; song</div>
+  <div class="sub" data-i18n="headerSub">style + lyrics &rarr; symbolic plan &rarr; song</div>
+  <select id="uiLang" style="width:auto;flex-shrink:0" title="UI language">
+    <option value="en">English</option>
+    <option value="zh">中文</option>
+  </select>
 </header>
 <main>
   <section class="panel" id="formPanel">
-    <h2>Inputs</h2>
+    <h2 data-i18n="inputs">Inputs</h2>
 
     <!-- Genre Preset (one-click fills everything below) -->
-    <label for="genrePreset">Genre Preset <span class="badge">fills all</span></label>
+    <label for="genrePreset"><span data-i18n="genrePreset">Genre Preset</span> <span class="badge" data-i18n="badgeFillsAll">fills all</span></label>
     <select id="genrePreset">
-      <option value="">— Pick a preset (or customise below) —</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"pop","instruments":["acoustic piano","rounded bass","light drums"],"tempo":88,"mood":["warm","lyrical memorable melody","unhurried phrasing"]}'>Pop / Piano (warm, female)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"jazz","instruments":["acoustic piano","tenor saxophone","upright bass","brushed drums"],"tempo":88,"mood":["intimate","spacious modern harmony","natural phrasing"]}'>Jazz (intimate, female)</option>
-      <option data-preset='{"lang":"English","gender":"male","genre":"rock","instruments":["distorted electric guitar","heavy bass","driving drums"],"tempo":140,"mood":["energetic","anthemic","raw"]}'>Rock (energetic, male)</option>
-      <option data-preset='{"lang":"English","gender":"male","genre":"R&B","instruments":["deep sub-bass","smooth electric piano","trap hi-hats"],"tempo":95,"mood":["smooth","sensual","laid-back"]}'>R&B / Soul (smooth, male)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"folk","instruments":["acoustic guitar fingerpicking","mandolin","light percussion","warm upright bass"],"tempo":76,"mood":["soft","intimate","heartfelt"]}'>Folk / Acoustic (soft, female)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"country","instruments":["steel guitar","fiddle","acoustic rhythm guitar","driving bass"],"tempo":120,"mood":["powerful","heartfelt"]}'>Country (heartfelt, female)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"electronic","instruments":["analog synth pads","pulsing bass","four-on-the-floor kick","shimmering arpeggios"],"tempo":128,"mood":["ethereal","dreamy","atmospheric"]}'>Electronic / Synthpop (dreamy, female)</option>
-      <option data-preset='{"lang":"English","gender":"male","genre":"hip-hop","instruments":["deep 808 bass","crisp snare","dark piano loop","hi-hat triplets"],"tempo":90,"mood":["aggressive","street","confident"]}'>Hip-Hop / Rap (aggressive, male)</option>
-      <option data-preset='{"lang":"Mandarin","gender":"female","genre":"pop","instruments":["\u94a2\u7434\u4f34\u594f","\u5706\u6da6\u8d1d\u65af","\u8f7b\u67d4\u9f13\u70b9"],"tempo":88,"mood":["\u6e29\u67d4","\u6292\u60c5\u65cb\u5f8b"]}'>Mandarin Pop (\u6e29\u67d4\u5973\u58f0)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"orchestral","instruments":["full string section","french horns","timpani","dramatic choir"],"tempo":70,"mood":["soaring","epic","cinematic","grand"]}'>Orchestral / Cinematic (epic)</option>
-      <option data-preset='{"lang":"English","gender":"male","genre":"blues","instruments":["electric guitar with overdrive","harmonica","walking bass","shuffle drums"],"tempo":100,"mood":["raw","gritty","heartfelt"]}'>Blues (gritty, male)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"punk","instruments":["distorted power chords","fast bass","driving drums"],"tempo":170,"mood":["energetic","rebellious","raw"]}'>Punk (energetic, female)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"bossa nova","instruments":["nylon classical guitar","light percussion","upright bass"],"tempo":110,"mood":["smooth","romantic","atmospheric"]}'>Bossa Nova (romantic, female)</option>
-      <option data-preset='{"lang":"English","gender":"female","genre":"gothic","instruments":["dark synth pads","deep bass","slow drums","reverb-drenched guitar"],"tempo":80,"mood":["haunting","melancholic","atmospheric"]}'>Gothic / Dark (moody, female)</option>
-      <option data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["skanking guitar","organ shuffle","deep dub bass","one-drop drum pattern"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
+      <option value="" data-i18n="presetPlaceholder">— Pick a preset (or customise below) —</option>
+      <option data-zh="流行 / 钢琴（温暖女声）" data-preset='{"lang":"English","gender":"female","genre":"pop","instruments":["acoustic piano","rounded bass","light drums"],"tempo":88,"mood":["warm","lyrical memorable melody","unhurried phrasing"]}'>Pop / Piano (warm, female)</option>
+      <option data-zh="爵士（亲密女声）" data-preset='{"lang":"English","gender":"female","genre":"jazz","instruments":["acoustic piano","tenor saxophone","upright bass","brushed drums"],"tempo":88,"mood":["intimate","spacious modern harmony","natural phrasing"]}'>Jazz (intimate, female)</option>
+      <option data-zh="摇滚（活力男声）" data-preset='{"lang":"English","gender":"male","genre":"rock","instruments":["distorted electric guitar","heavy bass","driving drums"],"tempo":140,"mood":["energetic","anthemic","raw"]}'>Rock (energetic, male)</option>
+      <option data-zh="节奏布鲁斯 / 灵魂（丝滑男声）" data-preset='{"lang":"English","gender":"male","genre":"R&B","instruments":["deep sub-bass","smooth electric piano","trap hi-hats"],"tempo":95,"mood":["smooth","sensual","laid-back"]}'>R&B / Soul (smooth, male)</option>
+      <option data-zh="民谣 / 原声（轻柔女声）" data-preset='{"lang":"English","gender":"female","genre":"folk","instruments":["acoustic guitar fingerpicking","mandolin","light percussion","warm upright bass"],"tempo":76,"mood":["soft","intimate","heartfelt"]}'>Folk / Acoustic (soft, female)</option>
+      <option data-zh="乡村（真挚女声）" data-preset='{"lang":"English","gender":"female","genre":"country","instruments":["steel guitar","fiddle","acoustic rhythm guitar","driving bass"],"tempo":120,"mood":["powerful","heartfelt"]}'>Country (heartfelt, female)</option>
+      <option data-zh="电子 / 合成器流行（梦幻女声）" data-preset='{"lang":"English","gender":"female","genre":"electronic","instruments":["analog synth pads","pulsing bass","four-on-the-floor kick","shimmering arpeggios"],"tempo":128,"mood":["ethereal","dreamy","atmospheric"]}'>Electronic / Synthpop (dreamy, female)</option>
+      <option data-zh="嘻哈 / 说唱（凶猛男声）" data-preset='{"lang":"English","gender":"male","genre":"hip-hop","instruments":["deep 808 bass","crisp snare","dark piano loop","hi-hat triplets"],"tempo":90,"mood":["aggressive","street","confident"]}'>Hip-Hop / Rap (aggressive, male)</option>
+      <option data-zh="华语流行（温柔女声）" data-preset='{"lang":"Mandarin","gender":"female","genre":"pop","instruments":["\u94a2\u7434\u4f34\u594f","\u5706\u6da6\u8d1d\u65af","\u8f7b\u67d4\u9f13\u70b9"],"tempo":88,"mood":["\u6e29\u67d4","\u6292\u60c5\u65cb\u5f8b"]}'>Mandarin Pop (\u6e29\u67d4\u5973\u58f0)</option>
+      <option data-zh="管弦 / 电影配乐（史诗）" data-preset='{"lang":"English","gender":"female","genre":"orchestral","instruments":["full string section","french horns","timpani","dramatic choir"],"tempo":70,"mood":["soaring","epic","cinematic","grand"]}'>Orchestral / Cinematic (epic)</option>
+      <option data-zh="布鲁斯（粗粝男声）" data-preset='{"lang":"English","gender":"male","genre":"blues","instruments":["electric guitar with overdrive","harmonica","walking bass","shuffle drums"],"tempo":100,"mood":["raw","gritty","heartfelt"]}'>Blues (gritty, male)</option>
+      <option data-zh="朋克（活力女声）" data-preset='{"lang":"English","gender":"female","genre":"punk","instruments":["distorted power chords","fast bass","driving drums"],"tempo":170,"mood":["energetic","rebellious","raw"]}'>Punk (energetic, female)</option>
+      <option data-zh="波萨诺瓦（浪漫女声）" data-preset='{"lang":"English","gender":"female","genre":"bossa nova","instruments":["nylon classical guitar","light percussion","upright bass"],"tempo":110,"mood":["smooth","romantic","atmospheric"]}'>Bossa Nova (romantic, female)</option>
+      <option data-zh="哥特 / 暗黑（忧郁女声）" data-preset='{"lang":"English","gender":"female","genre":"gothic","instruments":["dark synth pads","deep bass","slow drums","reverb-drenched guitar"],"tempo":80,"mood":["haunting","melancholic","atmospheric"]}'>Gothic / Dark (moody, female)</option>
+      <option data-zh="雷鬼（阳光男声）" data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["skanking guitar","organ shuffle","deep dub bass","one-drop drum pattern"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
     </select>
 
     <!-- Structured style builder -->
     <div class="grid4">
       <div>
-        <label for="selLang">Language</label>
+        <label for="selLang" data-i18n="labelLang">Language</label>
         <select id="selLang">
-          <option>English</option><option>Mandarin</option><option>Spanish</option>
-          <option>French</option><option>Japanese</option><option>Korean</option>
-          <option>Portuguese</option><option>German</option><option>Hindi</option>
-          <option>Urdu</option><option>Arabic</option><option>Russian</option>
+          <option value="English" data-zh="英语">English</option>
+          <option value="Mandarin" data-zh="普通话">Mandarin</option>
+          <option value="Spanish" data-zh="西班牙语">Spanish</option>
+          <option value="French" data-zh="法语">French</option>
+          <option value="Japanese" data-zh="日语">Japanese</option>
+          <option value="Korean" data-zh="韩语">Korean</option>
+          <option value="Portuguese" data-zh="葡萄牙语">Portuguese</option>
+          <option value="German" data-zh="德语">German</option>
+          <option value="Hindi" data-zh="印地语">Hindi</option>
+          <option value="Urdu" data-zh="乌尔都语">Urdu</option>
+          <option value="Arabic" data-zh="阿拉伯语">Arabic</option>
+          <option value="Russian" data-zh="俄语">Russian</option>
         </select>
       </div>
       <div>
-        <label for="selGender">Vocal</label>
+        <label for="selGender" data-i18n="labelVocal">Vocal</label>
         <select id="selGender">
-          <option value="female">Female</option>
-          <option value="male">Male</option>
-          <option value="duet">Duet (M+F)</option>
-          <option value="choir">Choir</option>
+          <option value="female" data-i18n="vocalFemale">Female</option>
+          <option value="male" data-i18n="vocalMale">Male</option>
+          <option value="duet" data-i18n="vocalDuet">Duet (M+F)</option>
+          <option value="choir" data-i18n="vocalChoir">Choir</option>
         </select>
       </div>
       <div>
-        <label for="selGenre">Genre</label>
+        <label for="selGenre" data-i18n="labelGenre">Genre</label>
         <select id="selGenre">
-          <option value="pop">Pop</option><option value="jazz">Jazz</option>
-          <option value="rock">Rock</option><option value="R&B">R&B</option>
-          <option value="folk">Folk</option><option value="country">Country</option>
-          <option value="electronic">Electronic</option><option value="hip-hop">Hip-Hop</option>
-          <option value="orchestral">Orchestral</option><option value="blues">Blues</option>
-          <option value="punk">Punk</option><option value="bossa nova">Bossa Nova</option>
-          <option value="gothic">Gothic</option><option value="reggae">Reggae</option>
-          <option value="metal">Metal</option><option value="disco">Disco</option>
-          <option value="soul">Soul</option><option value="funk">Funk</option>
-          <option value="ambient">Ambient</option>
+          <option value="pop" data-zh="流行">Pop</option><option value="jazz" data-zh="爵士">Jazz</option>
+          <option value="rock" data-zh="摇滚">Rock</option><option value="R&B" data-zh="节奏布鲁斯">R&B</option>
+          <option value="folk" data-zh="民谣">Folk</option><option value="country" data-zh="乡村">Country</option>
+          <option value="electronic" data-zh="电子">Electronic</option><option value="hip-hop" data-zh="嘻哈">Hip-Hop</option>
+          <option value="orchestral" data-zh="管弦">Orchestral</option><option value="blues" data-zh="布鲁斯">Blues</option>
+          <option value="punk" data-zh="朋克">Punk</option><option value="bossa nova" data-zh="波萨诺瓦">Bossa Nova</option>
+          <option value="gothic" data-zh="哥特">Gothic</option><option value="reggae" data-zh="雷鬼">Reggae</option>
+          <option value="metal" data-zh="金属">Metal</option><option value="disco" data-zh="迪斯科">Disco</option>
+          <option value="soul" data-zh="灵魂">Soul</option><option value="funk" data-zh="放克">Funk</option>
+          <option value="ambient" data-zh="氛围">Ambient</option>
         </select>
       </div>
       <div>
-        <label for="selTempo">Tempo</label>
+        <label for="selTempo" data-i18n="labelTempo">Tempo</label>
         <select id="selTempo">
-          <option value="60">60 — Ballad</option>
-          <option value="70">70 — Slow</option>
-          <option value="76">76 — Easy</option>
-          <option value="80">80 — Mid</option>
-          <option value="85">85 — Groove</option>
-          <option value="88" selected>88 — Warm</option>
-          <option value="95">95 — Smooth</option>
-          <option value="100">100 — Upbeat</option>
-          <option value="110">110 — Swing</option>
-          <option value="120">120 — Pop</option>
-          <option value="128">128 — Dance</option>
-          <option value="140">140 — Rock</option>
-          <option value="150">150 — Fast</option>
-          <option value="170">170 — Punk</option>
-          <option value="180">180 — Extreme</option>
+          <option value="60" data-zh="60 — 叙事曲">60 — Ballad</option>
+          <option value="70" data-zh="70 — 慢速">70 — Slow</option>
+          <option value="76" data-zh="76 — 轻松">76 — Easy</option>
+          <option value="80" data-zh="80 — 中速">80 — Mid</option>
+          <option value="85" data-zh="85 — 律动">85 — Groove</option>
+          <option value="88" selected data-zh="88 — 温暖">88 — Warm</option>
+          <option value="95" data-zh="95 — 丝滑">95 — Smooth</option>
+          <option value="100" data-zh="100 — 轻快">100 — Upbeat</option>
+          <option value="110" data-zh="110 — 摇摆">110 — Swing</option>
+          <option value="120" data-zh="120 — 流行">120 — Pop</option>
+          <option value="128" data-zh="128 — 舞曲">128 — Dance</option>
+          <option value="140" data-zh="140 — 摇滚">140 — Rock</option>
+          <option value="150" data-zh="150 — 快速">150 — Fast</option>
+          <option value="170" data-zh="170 — 朋克">170 — Punk</option>
+          <option value="180" data-zh="180 — 极限">180 — Extreme</option>
         </select>
       </div>
     </div>
 
-    <label>Instruments <span class="badge">click to toggle</span></label>
+    <label><span data-i18n="labelInstruments">Instruments</span> <span class="badge" data-i18n="badgeToggle">click to toggle</span></label>
     <div class="chips" id="instrumentChips">
-      <span class="chip" data-ins="acoustic piano">acoustic piano</span>
-      <span class="chip" data-ins="electric guitar">electric guitar</span>
-      <span class="chip" data-ins="distorted electric guitar">distorted guitar</span>
-      <span class="chip" data-ins="nylon guitar">nylon guitar</span>
-      <span class="chip" data-ins="steel guitar">steel guitar</span>
-      <span class="chip" data-ins="upright bass">upright bass</span>
-      <span class="chip" data-ins="rounded bass">rounded bass</span>
-      <span class="chip" data-ins="deep sub-bass">sub-bass</span>
-      <span class="chip" data-ins="808 bass">808 bass</span>
-      <span class="chip" data-ins="light drums">light drums</span>
-      <span class="chip" data-ins="brushed drums">brushed drums</span>
-      <span class="chip" data-ins="driving drums">driving drums</span>
-      <span class="chip" data-ins="trap hi-hats">trap hi-hats</span>
-      <span class="chip" data-ins="string section">strings</span>
-      <span class="chip" data-ins="french horns">french horns</span>
-      <span class="chip" data-ins="timpani">timpani</span>
-      <span class="chip" data-ins="choir">choir</span>
-      <span class="chip" data-ins="tenor saxophone">tenor sax</span>
-      <span class="chip" data-ins="harmonica">harmonica</span>
-      <span class="chip" data-ins="fiddle">fiddle</span>
-      <span class="chip" data-ins="mandolin">mandolin</span>
-      <span class="chip" data-ins="synth pads">synth pads</span>
-      <span class="chip" data-ins="arpeggios">arpeggios</span>
-      <span class="chip" data-ins="organ">organ</span>
-      <span class="chip" data-ins="marimba">marimba</span>
-      <span class="chip" data-ins="trumpet">trumpet</span>
-      <span class="chip" data-ins="flute">flute</span>
+      <span class="chip" data-zh="钢琴" data-ins="acoustic piano">acoustic piano</span>
+      <span class="chip" data-zh="电吉他" data-ins="electric guitar">electric guitar</span>
+      <span class="chip" data-zh="失真吉他" data-ins="distorted electric guitar">distorted guitar</span>
+      <span class="chip" data-zh="尼龙弦吉他" data-ins="nylon guitar">nylon guitar</span>
+      <span class="chip" data-zh="钢弦吉他" data-ins="steel guitar">steel guitar</span>
+      <span class="chip" data-zh="低音提琴" data-ins="upright bass">upright bass</span>
+      <span class="chip" data-zh="圆润贝斯" data-ins="rounded bass">rounded bass</span>
+      <span class="chip" data-zh="低音贝斯" data-ins="deep sub-bass">sub-bass</span>
+      <span class="chip" data-zh="808贝斯" data-ins="808 bass">808 bass</span>
+      <span class="chip" data-zh="轻鼓点" data-ins="light drums">light drums</span>
+      <span class="chip" data-zh="刷鼓" data-ins="brushed drums">brushed drums</span>
+      <span class="chip" data-zh="强劲鼓点" data-ins="driving drums">driving drums</span>
+      <span class="chip" data-zh="嘻哈镲片" data-ins="trap hi-hats">trap hi-hats</span>
+      <span class="chip" data-zh="弦乐组" data-ins="string section">strings</span>
+      <span class="chip" data-zh="圆号" data-ins="french horns">french horns</span>
+      <span class="chip" data-zh="定音鼓" data-ins="timpani">timpani</span>
+      <span class="chip" data-zh="合唱" data-ins="choir">choir</span>
+      <span class="chip" data-zh="次中音萨克斯" data-ins="tenor saxophone">tenor sax</span>
+      <span class="chip" data-zh="口琴" data-ins="harmonica">harmonica</span>
+      <span class="chip" data-zh="小提琴" data-ins="fiddle">fiddle</span>
+      <span class="chip" data-zh="曼陀林" data-ins="mandolin">mandolin</span>
+      <span class="chip" data-zh="合成器铺底" data-ins="synth pads">synth pads</span>
+      <span class="chip" data-zh="琶音" data-ins="arpeggios">arpeggios</span>
+      <span class="chip" data-zh="风琴" data-ins="organ">organ</span>
+      <span class="chip" data-zh="马林巴" data-ins="marimba">marimba</span>
+      <span class="chip" data-zh="小号" data-ins="trumpet">trumpet</span>
+      <span class="chip" data-zh="长笛" data-ins="flute">flute</span>
     </div>
 
-    <label>Mood / Phrasing <span class="badge">click to toggle</span></label>
+    <label><span data-i18n="labelMood">Mood / Phrasing</span> <span class="badge" data-i18n="badgeToggle">click to toggle</span></label>
     <div class="chips" id="moodChips">
-      <span class="chip" data-mood="warm">warm</span>
-      <span class="chip" data-mood="intimate">intimate</span>
-      <span class="chip" data-mood="energetic">energetic</span>
-      <span class="chip" data-mood="ethereal">ethereal</span>
-      <span class="chip" data-mood="melancholic">melancholic</span>
-      <span class="chip" data-mood="anthemic">anthemic</span>
-      <span class="chip" data-mood="dreamy">dreamy</span>
-      <span class="chip" data-mood="gritty">gritty</span>
-      <span class="chip" data-mood="romantic">romantic</span>
-      <span class="chip" data-mood="epic">epic</span>
-      <span class="chip" data-mood="raw">raw</span>
-      <span class="chip" data-mood="cheerful">cheerful</span>
-      <span class="chip" data-mood="haunting">haunting</span>
-      <span class="chip" data-mood="sensual">sensual</span>
-      <span class="chip" data-mood="aggressive">aggressive</span>
-      <span class="chip" data-mood="laid-back">laid-back</span>
-      <span class="chip" data-mood="unhurried phrasing">unhurried</span>
-      <span class="chip" data-mood="lyrical memorable melody">lyrical melody</span>
-      <span class="chip" data-mood="spacious modern harmony">spacious harmony</span>
-      <span class="chip" data-mood="natural phrasing">natural phrasing</span>
-      <span class="chip" data-mood="heartfelt">heartfelt</span>
-      <span class="chip" data-mood="cinematic">cinematic</span>
-      <span class="chip" data-mood="atmospheric">atmospheric</span>
-      <span class="chip" data-mood="street">street</span>
-      <span class="chip" data-mood="rebellious">rebellious</span>
+      <span class="chip" data-zh="温暖" data-mood="warm">warm</span>
+      <span class="chip" data-zh="亲密" data-mood="intimate">intimate</span>
+      <span class="chip" data-zh="活力" data-mood="energetic">energetic</span>
+      <span class="chip" data-zh="空灵" data-mood="ethereal">ethereal</span>
+      <span class="chip" data-zh="忧郁" data-mood="melancholic">melancholic</span>
+      <span class="chip" data-zh="颂歌式" data-mood="anthemic">anthemic</span>
+      <span class="chip" data-zh="梦幻" data-mood="dreamy">dreamy</span>
+      <span class="chip" data-zh="粗粝" data-mood="gritty">gritty</span>
+      <span class="chip" data-zh="浪漫" data-mood="romantic">romantic</span>
+      <span class="chip" data-zh="史诗" data-mood="epic">epic</span>
+      <span class="chip" data-zh="原始" data-mood="raw">raw</span>
+      <span class="chip" data-zh="欢快" data-mood="cheerful">cheerful</span>
+      <span class="chip" data-zh="萦绕" data-mood="haunting">haunting</span>
+      <span class="chip" data-zh="感性" data-mood="sensual">sensual</span>
+      <span class="chip" data-zh="凶猛" data-mood="aggressive">aggressive</span>
+      <span class="chip" data-zh="慵懒" data-mood="laid-back">laid-back</span>
+      <span class="chip" data-zh="从容" data-mood="unhurried phrasing">unhurried</span>
+      <span class="chip" data-zh="抒情旋律" data-mood="lyrical memorable melody">lyrical melody</span>
+      <span class="chip" data-zh="宽阔和声" data-mood="spacious modern harmony">spacious harmony</span>
+      <span class="chip" data-zh="自然唱腔" data-mood="natural phrasing">natural phrasing</span>
+      <span class="chip" data-zh="真挚" data-mood="heartfelt">heartfelt</span>
+      <span class="chip" data-zh="电影感" data-mood="cinematic">cinematic</span>
+      <span class="chip" data-zh="氛围感" data-mood="atmospheric">atmospheric</span>
+      <span class="chip" data-zh="街头" data-mood="street">street</span>
+      <span class="chip" data-zh="反叛" data-mood="rebellious">rebellious</span>
     </div>
 
-    <label for="stylePreview">Style / Tags <span class="badge">auto-generated</span></label>
+    <label for="stylePreview"><span data-i18n="labelStyle">Style / Tags</span> <span class="badge" data-i18n="badgeAuto">auto-generated</span></label>
     <div id="stylePreview"></div>
     <input type="hidden" id="style"/>
-    <textarea id="styleEdit" placeholder="Type your own style from scratch..." style="display:none;min-height:80px"></textarea>
+    <textarea id="styleEdit" data-i18n-ph="phStyleEdit" placeholder="Type your own style from scratch..." style="display:none;min-height:80px"></textarea>
     <button class="secondary" id="toggleEditBtn" style="margin-top:8px;font-size:11px;padding:6px 12px">✎ Edit manually</button>
 
-    <label for="lyrics">Lyrics (use [Verse] / [Chorus] markers)</label>
+    <label for="lyrics" data-i18n="labelLyrics">Lyrics (use [Verse] / [Chorus] markers)</label>
     <textarea id="lyrics" placeholder="[Verse]&#10;Neon fades along the lane&#10;Footsteps keep the time of rain&#10;&#10;[Chorus]&#10;Let the day come into view&#10;Every road begins with you">[Verse]
 Neon fades along the lane
 Footsteps keep the time of rain
@@ -631,83 +734,99 @@ Hold a little room for light
 We will sing beyond the night</textarea>
     <div class="grid2">
       <div>
-        <label for="cot">Chain-of-Thought mode</label>
+        <label for="cot" data-i18n="labelCot">Chain-of-Thought mode</label>
         <select id="cot"></select>
       </div>
       <div>
-        <label for="seed">Seed (blank = 831001)</label>
+        <label for="seed" data-i18n="labelSeed">Seed (blank = 831001)</label>
         <input id="seed" type="text" placeholder="831001"/>
       </div>
     </div>
     <div class="grid2">
       <div>
-        <label for="cfgScale">CFG scale (blank = default)</label>
+        <label for="cfgScale" data-i18n="labelCfg">CFG scale (blank = default)</label>
         <input id="cfgScale" type="text" placeholder="1.0"/>
       </div>
       <div>
-        <label for="abc">External ABC score (optional)</label>
+        <label for="abc" data-i18n="labelAbc">External ABC score (optional)</label>
         <input id="abc" type="file" accept=".abc,.txt"/>
       </div>
     </div>
 
-    <h2 style="margin-top:18px">Models &amp; Backend</h2>
+    <h2 style="margin-top:18px" data-i18n="hModels">Models &amp; Backend</h2>
     <div class="grid2">
       <div>
-        <label for="model">Model</label>
+        <label for="model" data-i18n="labelModel">Model</label>
         <select id="model"></select>
       </div>
       <div>
-        <label for="vae">VAE</label>
+        <label for="vae" data-i18n="labelVae">VAE</label>
         <select id="vae"></select>
       </div>
     </div>
     <div class="grid3">
       <div>
-        <label for="backend">Backend</label>
+        <label for="backend" data-i18n="labelBackend">Backend</label>
         <select id="backend"></select>
       </div>
       <div>
-        <label for="quantization">Quantization</label>
+        <label for="quantization" data-i18n="labelQuant">Quantization</label>
         <select id="quantization"></select>
       </div>
       <div>
-        <label for="device">Device</label>
+        <label for="device" data-i18n="labelDevice">Device</label>
         <select id="device"></select>
       </div>
     </div>
     <div class="grid2">
       <div>
-        <label for="budget">Memory budget (GiB)</label>
+        <label for="budget" data-i18n="labelBudget">Memory budget (GiB)</label>
         <input id="budget" type="number" value="24" min="4" max="64"/>
       </div>
       <div>
-        <label for="offloadAr">Offload AR to CPU</label>
+        <label for="offloadAr" data-i18n="labelOffload">Offload AR to CPU</label>
         <select id="offloadAr">
-          <option value="false">No</option>
-          <option value="true">Yes (low-VRAM)</option>
+          <option value="false" data-i18n="optNo">No</option>
+          <option value="true" data-i18n="optYesLowVram">Yes (low-VRAM)</option>
         </select>
       </div>
     </div>
-    <div class="actions">
-      <button id="generateBtn">Generate Music</button>
-      <button id="stopBtn" class="secondary" disabled>Stop</button>
+
+    <h2 style="margin-top:18px" data-i18n="hProfile">Profile save / load</h2>
+    <div class="grid2">
+      <div>
+        <input id="profileName" type="text" data-i18n-ph="phProfileName" placeholder="Profile name"/>
+      </div>
+      <div>
+        <select id="profileList"></select>
+      </div>
     </div>
-    <div class="hint" id="readyHint">Loading options...</div>
+    <div class="grid3" style="margin-top:8px">
+      <button class="secondary" id="profileSaveBtn" data-i18n="btnSave">Save</button>
+      <button class="secondary" id="profileLoadBtn" data-i18n="btnLoad">Load</button>
+      <button class="secondary" id="profileDeleteBtn" data-i18n="btnDelete">Delete</button>
+    </div>
+
+    <div class="actions">
+      <button id="generateBtn" data-i18n="btnGenerate">Generate Music</button>
+      <button id="stopBtn" class="secondary" disabled data-i18n="btnStop">Stop</button>
+    </div>
+    <div class="hint" id="readyHint" data-i18n="loadingOptions">Loading options...</div>
   </section>
 
   <section class="panel" id="progressPanel">
-    <h2>Progress</h2>
-    <div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText">Idle</span></div>
+    <h2 data-i18n="hProgress">Progress</h2>
+    <div class="status-pill"><span id="statusDot" class="dot"></span><span id="statusText" data-i18n="idle">Idle</span></div>
     <div class="progress-bar"><div id="progressFill"></div></div>
-    <div id="progressLog">Waiting for a generation to start...</div>
+    <div id="progressLog" data-i18n="waitingLog">Waiting for a generation to start...</div>
     <div class="err-box" id="errBox"></div>
     <div class="result" id="resultBox">
-      <h2 style="margin-top:0">Result</h2>
+      <h2 style="margin-top:0" data-i18n="hResult">Result</h2>
       <audio id="audioPlayer" controls></audio>
       <div class="truncated-warn" id="truncatedWarn" style="display:none"></div>
       <div class="result-actions">
-        <button class="secondary" id="downloadBtn">Download .flac</button>
-        <button class="secondary" id="openFolderBtn">Open containing folder</button>
+        <button class="secondary" id="downloadBtn" data-i18n="btnDownload">Download .flac</button>
+        <button class="secondary" id="openFolderBtn" data-i18n="btnOpenFolder">Open containing folder</button>
       </div>
     </div>
   </section>
@@ -717,6 +836,233 @@ We will sing beyond the night</textarea>
 const $ = id => document.getElementById(id);
 let currentJobId = null;
 let eventSource = null;
+let uiLang = 'en';
+
+// ---- i18n: add more languages by adding another key here (e.g. es: {...}) ----
+const I18N = {
+  en: {
+    headerSub:'style + lyrics \u2192 symbolic plan \u2192 song',
+    inputs:'Inputs', genrePreset:'Genre Preset', badgeFillsAll:'fills all',
+    presetPlaceholder:'\u2014 Pick a preset (or customise below) \u2014',
+    labelLang:'Language', labelVocal:'Vocal', labelGenre:'Genre', labelTempo:'Tempo',
+    vocalFemale:'Female', vocalMale:'Male', vocalDuet:'Duet (M+F)', vocalChoir:'Choir',
+    labelInstruments:'Instruments', badgeToggle:'click to toggle',
+    labelMood:'Mood / Phrasing', labelStyle:'Style / Tags', badgeAuto:'auto-generated',
+    phStyleEdit:'Type your own style from scratch...',
+    btnEditManually:'\u270e Edit manually', btnUseBuilder:'\u2714 Use builder',
+    labelLyrics:'Lyrics (use [Verse] / [Chorus] markers)',
+    labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
+    labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
+    hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
+    labelQuant:'Quantization', labelDevice:'Device', labelBudget:'Memory budget (GiB)',
+    labelOffload:'Offload AR to CPU', optNo:'No', optYesLowVram:'Yes (low-VRAM)',
+    hProfile:'Profile save / load', phProfileName:'Profile name',
+    profilePlaceholder:'\u2014 saved profiles \u2014',
+    btnSave:'Save', btnLoad:'Load', btnDelete:'Delete',
+    btnGenerate:'Generate Music', btnStop:'Stop',
+    loadingOptions:'Loading options...',
+    hProgress:'Progress', idle:'Idle', waitingLog:'Waiting for a generation to start...',
+    hResult:'Result', btnDownload:'Download .flac', btnOpenFolder:'Open containing folder',
+    generating:'Generating...', error:'Error', done:'Done', failed:'Failed',
+    cancelled:'Cancelled', stopping:'Stopping...', stopped:'Stopped',
+    streamDisconnected:'Stream disconnected', stageComplete:'Stage complete',
+    submitting:'Submitting job...', completeLog:'Generation complete: ',
+    readyHint:'Ready. {n} device(s) found. Default backend: {b}.',
+    threadKilled:'>> Thread killed (was stuck in a non-interruptible step)',
+    threadAlive:'>> Warning: thread still alive, may block next run',
+    stopFailed:'>> Stop request failed: ', alertFailed:'Failed: ',
+    truncatedWarn:'Note: output was truncated (abc={abc}, semantic={sem}). Increase max_tokens in the request or shorten lyrics.',
+    profileNameRequired:'Enter a profile name first',
+    profilePickFirst:'Pick a profile from the list first',
+    saveFailed:'Save failed', loadFailed:'Load failed',
+    confirmDelete:"Delete profile '{name}'?",
+  },
+  zh: {
+    headerSub:'风格 + 歌词 \u2192 符号规划 \u2192 歌曲',
+    inputs:'输入', genrePreset:'流派预设', badgeFillsAll:'一键填充',
+    presetPlaceholder:'\u2014 选择预设（或在下方自定义）\u2014',
+    labelLang:'语言', labelVocal:'人声', labelGenre:'流派', labelTempo:'速度',
+    vocalFemale:'女声', vocalMale:'男声', vocalDuet:'对唱（男+女）', vocalChoir:'合唱',
+    labelInstruments:'乐器', badgeToggle:'点击选择',
+    labelMood:'情绪 / 演唱', labelStyle:'风格 / 标签', badgeAuto:'自动生成',
+    phStyleEdit:'从头输入你的自定义风格...',
+    btnEditManually:'\u270e 手动编辑', btnUseBuilder:'\u2714 使用构建器',
+    labelLyrics:'歌词（使用 [Verse] / [Chorus] 标记）',
+    labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
+    labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
+    hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
+    labelQuant:'量化', labelDevice:'设备', labelBudget:'显存预算 (GiB)',
+    labelOffload:'AR 卸载到内存', optNo:'否', optYesLowVram:'是（低显存）',
+    hProfile:'配置保存 / 加载', phProfileName:'配置名称',
+    profilePlaceholder:'\u2014 已保存的配置 \u2014',
+    btnSave:'保存', btnLoad:'加载', btnDelete:'删除',
+    btnGenerate:'生成音乐', btnStop:'停止',
+    loadingOptions:'正在加载选项...',
+    hProgress:'进度', idle:'空闲', waitingLog:'等待生成任务开始...',
+    hResult:'结果', btnDownload:'下载 .flac', btnOpenFolder:'打开所在文件夹',
+    generating:'生成中...', error:'错误', done:'完成', failed:'失败',
+    cancelled:'已取消', stopping:'正在停止...', stopped:'已停止',
+    streamDisconnected:'连接已断开', stageComplete:'阶段完成',
+    submitting:'正在提交任务...', completeLog:'生成完成：',
+    readyHint:'就绪。找到 {n} 个设备。默认后端：{b}。',
+    threadKilled:'>> 线程已强制终止（卡在不可中断的步骤）',
+    threadAlive:'>> 警告：线程仍存活，可能阻塞下一次运行',
+    stopFailed:'>> 停止请求失败：', alertFailed:'失败：',
+    truncatedWarn:'注意：输出被截断（abc={abc}，semantic={sem}）。请增大请求中的 max_tokens 或缩短歌词。',
+    profileNameRequired:'请先输入配置名称',
+    profilePickFirst:'请先从列表选择一个配置',
+    saveFailed:'保存失败', loadFailed:'加载失败',
+    confirmDelete:"确定删除配置“{name}”？",
+  },
+};
+function t(key){
+  return (I18N[uiLang] && I18N[uiLang][key]) || I18N.en[key] || key;
+}
+// Elements that show Chinese text when uiLang=zh but keep their English
+// value/model tag (chips, song-language / tempo / genre / preset options).
+function applyDataZh(){
+  document.querySelectorAll('[data-zh]').forEach(el=>{
+    if(el.dataset.en === undefined) el.dataset.en = el.textContent;
+    el.textContent = uiLang === 'zh' ? el.dataset.zh : el.dataset.en;
+  });
+}
+// Options filled from /api/options (cot / quantization). Backend & device
+// intentionally stay English (technical terms, per compatibility).
+const OPT_I18N = {
+  cot: { full:'完整（和弦+旋律 ABC，默认）', melody:'仅旋律 ABC', off:'关闭（不生成 ABC）' },
+  quantization: { none:'无（bfloat16）', fp8:'fp8（更低显存）' },
+};
+function applySelectOptionLang(id){
+  const map = OPT_I18N[id];
+  if(!map) return;
+  [...$(id).options].forEach(opt=>{
+    opt.textContent = uiLang === 'zh' ? (map[opt.value] || opt.dataset.labelEn) : opt.dataset.labelEn;
+  });
+}
+function applyLang(lang){
+  uiLang = I18N[lang] ? lang : 'en';
+  document.documentElement.lang = uiLang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const v = I18N[uiLang][el.dataset.i18n];
+    if(v !== undefined) el.textContent = v;
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{
+    const v = I18N[uiLang][el.dataset.i18nPh];
+    if(v !== undefined) el.placeholder = v;
+  });
+  applyDataZh();
+  ['cot','quantization'].forEach(applySelectOptionLang);
+  $('toggleEditBtn').textContent = manualEdit ? t('btnUseBuilder') : t('btnEditManually');
+  const phOpt = $('profileList').querySelector('option[value=""]');
+  if(phOpt) phOpt.textContent = t('profilePlaceholder');
+  localStorage.setItem('yue_ui_lang', uiLang);
+}
+$('uiLang').addEventListener('change', e => applyLang(e.target.value));
+
+// ---- Form state: collect / apply (used by profiles + autosave) ----
+function collectState(){
+  return {
+    uiLang, lang: $('selLang').value, gender: $('selGender').value,
+    genre: $('selGenre').value, tempo: $('selTempo').value,
+    instruments: [...document.querySelectorAll('#instrumentChips .chip.active')].map(c=>c.dataset.ins),
+    moods: [...document.querySelectorAll('#moodChips .chip.active')].map(c=>c.dataset.mood),
+    manualEdit, style: $('style').value, styleEdit: $('styleEdit').value,
+    lyrics: $('lyrics').value, cot: $('cot').value,
+    seed: $('seed').value, cfgScale: $('cfgScale').value,
+    model: $('model').value, vae: $('vae').value, backend: $('backend').value,
+    quantization: $('quantization').value, device: $('device').value,
+    budget: $('budget').value, offloadAr: $('offloadAr').value,
+  };
+}
+function applyState(s){
+  if(!s || typeof s !== 'object') return;
+  if(s.uiLang && I18N[s.uiLang]){ $('uiLang').value = s.uiLang; applyLang(s.uiLang); }
+  if(s.lang) $('selLang').value = s.lang;
+  if(s.gender) $('selGender').value = s.gender;
+  if(s.genre) $('selGenre').value = s.genre;
+  if(s.tempo) $('selTempo').value = String(s.tempo);
+  document.querySelectorAll('.chip.active').forEach(c=>c.classList.remove('active'));
+  (s.instruments||[]).forEach(ins=>{
+    const c = document.querySelector(`#instrumentChips .chip[data-ins="${ins}"]`);
+    if(c) c.classList.add('active');
+  });
+  (s.moods||[]).forEach(m=>{
+    const c = document.querySelector(`#moodChips .chip[data-mood="${m}"]`);
+    if(c) c.classList.add('active');
+  });
+  if(typeof s.manualEdit === 'boolean' && manualEdit !== s.manualEdit) $('toggleEditBtn').click();
+  if(s.styleEdit !== undefined) $('styleEdit').value = s.styleEdit;
+  if(s.style !== undefined) $('style').value = s.style;
+  if(s.manualEdit) $('stylePreview').textContent = s.style || '';
+  else buildStyle();
+  if(s.lyrics !== undefined) $('lyrics').value = s.lyrics;
+  if(s.cot) $('cot').value = s.cot;
+  if(s.seed !== undefined && s.seed !== null) $('seed').value = s.seed;
+  if(s.cfgScale !== undefined && s.cfgScale !== null) $('cfgScale').value = s.cfgScale;
+  if(s.model){
+    $('model').value = s.model;
+    const opt = $('model').selectedOptions[0];
+    if(opt && opt.dataset.vae && !s.vae) $('vae').value = opt.dataset.vae;
+  }
+  if(s.vae) $('vae').value = s.vae;
+  if(s.backend) $('backend').value = s.backend;
+  if(s.quantization) $('quantization').value = s.quantization;
+  if(s.device) $('device').value = s.device;
+  if(s.budget) $('budget').value = s.budget;
+  if(s.offloadAr) $('offloadAr').value = String(s.offloadAr);
+}
+
+// ---- Server-side profiles ----
+async function refreshProfiles(){
+  try{
+    const r = await fetch('/api/profiles');
+    const j = await r.json();
+    const sel = $('profileList');
+    sel.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = t('profilePlaceholder');
+    sel.appendChild(ph);
+    (j.profiles||[]).forEach(n=>{
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      sel.appendChild(o);
+    });
+  }catch{}
+}
+$('profileSaveBtn').addEventListener('click', async ()=>{
+  const name = $('profileName').value.trim();
+  if(!name){ alert(t('profileNameRequired')); return; }
+  try{
+    const r = await fetch('/api/profiles/'+encodeURIComponent(name),{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({data: collectState()})
+    });
+    if(!r.ok){ const j = await r.json(); alert(t('saveFailed') + ': ' + (j.error||r.status)); return; }
+    await refreshProfiles();
+    $('profileList').value = name;
+  }catch(e){ alert(t('saveFailed') + ': ' + e); }
+});
+$('profileLoadBtn').addEventListener('click', async ()=>{
+  const name = $('profileList').value;
+  if(!name){ alert(t('profilePickFirst')); return; }
+  try{
+    const r = await fetch('/api/profiles/'+encodeURIComponent(name));
+    if(!r.ok){ alert(t('loadFailed')); return; }
+    const j = await r.json();
+    applyState(j.data || j);
+    localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
+  }catch(e){ alert(t('loadFailed') + ': ' + e); }
+});
+$('profileDeleteBtn').addEventListener('click', async ()=>{
+  const name = $('profileList').value;
+  if(!name){ alert(t('profilePickFirst')); return; }
+  if(!confirm(t('confirmDelete').replace('{name}', name))) return;
+  try{
+    await fetch('/api/profiles/'+encodeURIComponent(name), {method:'DELETE'});
+    if($('profileName').value.trim() === name) $('profileName').value = '';
+    await refreshProfiles();
+  }catch{}
+});
 
 async function loadOptions(){
   const r = await fetch('/api/options');
@@ -733,17 +1079,21 @@ async function loadOptions(){
     if(v==='m-a-p/YuE2-Vae') opt.selected=true;
     $('vae').appendChild(opt);
   });
-  $('readyHint').textContent = `Ready. ${o.devices.length} device(s) found. Default backend: ${o.backends.find(b=>b.default)?.id||'torch-eager'}.`;
+  $('readyHint').textContent = t('readyHint')
+    .replace('{n}', o.devices.length)
+    .replace('{b}', o.backends.find(b=>b.default)?.id||'torch-eager');
 }
 function fillSelect(id, items){
   const sel=$(id); sel.innerHTML='';
   items.forEach(it=>{
     const opt=document.createElement('option');
     opt.value=it.value||it.id; opt.textContent=it.label||it.id;
+    opt.dataset.labelEn=it.label||it.id;
     if(it.default) opt.selected=true;
     if(it.vae) opt.dataset.vae=it.vae;
     sel.appendChild(opt);
   });
+  applySelectOptionLang(id);
 }
 $('model').addEventListener('change', e=>{
   const opt=e.target.selectedOptions[0];
@@ -752,7 +1102,7 @@ $('model').addEventListener('change', e=>{
 
 function setStatus(state, text){
   $('statusDot').className='dot '+(state||'');
-  $('statusText').textContent=text||'Idle';
+  $('statusText').textContent=text||t('idle');
 }
 function logLine(line, cls){
   const el=document.createElement('div');
@@ -791,18 +1141,19 @@ async function startGenerate(){
     offload_ar:$('offloadAr').value==='true',
   };
   clearProgress();
-  setStatus('running','Generating...');
+  setStatus('running',t('generating'));
   $('generateBtn').disabled=true;
   $('stopBtn').disabled=false;
-  logLine('Submitting job...');
+  logLine(t('submitting'));
   try{
+    localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
     const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const j=await r.json();
     if(!r.ok){ throw new Error(j.error||'Failed to start job'); }
     currentJobId=j.job_id;
     openStream(j.job_id);
   }catch(e){
-    setStatus('err','Error');
+    setStatus('err',t('error'));
     $('errBox').classList.add('show');
     $('errBox').textContent=String(e);
     $('generateBtn').disabled=false;
@@ -818,7 +1169,7 @@ function openStream(jobId){
     handleEvent(d);
   };
   eventSource.onerror=()=>{
-    setStatus('err','Stream disconnected');
+    setStatus('err',t('streamDisconnected'));
   };
 }
 
@@ -833,7 +1184,7 @@ function handleEvent(d){
     if(pct!==null){ $('progressFill').style.width=pct+'%'; }
     const cls = d.prefix==='Completed'?'done':(d.prefix==='Failed'||d.prefix==='Cancelled'?'err':'running');
     logLine(`[${d.prefix}] ${d.stage}: ${d.suffix}`, 'stage-line '+cls);
-    if(d.prefix==='Completed') setStatus('done','Stage complete');
+    if(d.prefix==='Completed') setStatus('done',t('stageComplete'));
     else if(d.prefix==='Failed'||d.prefix==='Cancelled') setStatus('err',d.prefix);
     else setStatus('running',d.stage);
   } else if(d.type==='stage'){
@@ -841,19 +1192,19 @@ function handleEvent(d){
     setStatus('running',d.name);
   } else if(d.type==='complete'){
     $('progressFill').style.width='100%';
-    setStatus('done','Done');
-    logLine(`Generation complete: ${d.audio}`,'stage-line done');
+    setStatus('done',t('done'));
+    logLine(t('completeLog')+d.audio,'stage-line done');
     showResult(d);
     $('generateBtn').disabled=false;
     $('stopBtn').disabled=true;
   } else if(d.type==='error'){
-    setStatus('err','Failed');
+    setStatus('err',t('failed'));
     $('errBox').classList.add('show');
     $('errBox').textContent=d.message+'\n\n'+(d.traceback||'');
     $('generateBtn').disabled=false;
     $('stopBtn').disabled=true;
   } else if(d.type==='cancelled'){
-    setStatus('err','Cancelled');
+    setStatus('err',t('cancelled'));
     logLine('>> '+d.message,'stage-line err');
     $('generateBtn').disabled=false;
     $('stopBtn').disabled=true;
@@ -867,12 +1218,13 @@ function showResult(d){
   $('resultBox').classList.add('show');
   if(d.truncated && (d.truncated.abc||d.truncated.semantic)){
     $('truncatedWarn').style.display='block';
-    $('truncatedWarn').textContent='Note: output was truncated (abc='+d.truncated.abc+', semantic='+d.truncated.semantic+'). Increase max_tokens in the request or shorten lyrics.';
+    $('truncatedWarn').textContent=t('truncatedWarn')
+      .replace('{abc}',d.truncated.abc).replace('{sem}',d.truncated.semantic);
   }
   $('downloadBtn').onclick=()=>{ window.location=`/api/jobs/${currentJobId}/download`; };
   $('openFolderBtn').onclick=async()=>{
     const r=await fetch(`/api/jobs/${currentJobId}/open-folder`);
-    if(!r.ok){ const j=await r.json(); alert('Failed: '+(j.error||r.status)); }
+    if(!r.ok){ const j=await r.json(); alert(t('alertFailed')+(j.error||r.status)); }
   };
 }
 
@@ -948,11 +1300,11 @@ $('toggleEditBtn').addEventListener('click', () => {
     $('styleEdit').style.display = '';
     $('styleEdit').value = $('style').value || $('stylePreview').textContent;
     $('stylePreview').style.opacity = '0.4';
-    $('toggleEditBtn').textContent = '\u2714 Use builder';
+    $('toggleEditBtn').textContent = t('btnUseBuilder');
   } else {
     $('styleEdit').style.display = 'none';
     $('stylePreview').style.opacity = '';
-    $('toggleEditBtn').textContent = '\u270e Edit manually';
+    $('toggleEditBtn').textContent = t('btnEditManually');
     buildStyle();
   }
 });
@@ -966,25 +1318,36 @@ buildStyle();
 $('stopBtn').addEventListener('click', async ()=>{
   if(!currentJobId){ return; }
   $('stopBtn').disabled=true;
-  setStatus('err','Stopping...');
+  setStatus('err',t('stopping'));
   try{
     const r=await fetch(`/api/jobs/${currentJobId}/stop`,{method:'POST'});
     const j=await r.json();
     if(j.forced_kill){
-      logLine('>> Thread killed (was stuck in a non-interruptible step)','stage-line err');
+      logLine(t('threadKilled'),'stage-line err');
     }
     if(j.still_alive){
-      logLine('>> Warning: thread still alive, may block next run','stage-line err');
+      logLine(t('threadAlive'),'stage-line err');
     }
   }catch(e){
-    logLine('>> Stop request failed: '+e,'stage-line err');
+    logLine(t('stopFailed')+e,'stage-line err');
   }
   if(eventSource){ eventSource.close(); eventSource=null; }
-  setStatus('err','Stopped');
+  setStatus('err',t('stopped'));
   $('generateBtn').disabled=false;
 });
 
-loadOptions();
+// ---- Init: restore UI language + last state, then load options/profiles ----
+(function initLang(){
+  const saved = localStorage.getItem('yue_ui_lang');
+  const lang = saved || ((navigator.language||'en').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+  $('uiLang').value = I18N[lang] ? lang : 'en';
+  applyLang($('uiLang').value);
+})();
+loadOptions().then(()=>{
+  const savedState = localStorage.getItem('yue_last_state');
+  if(savedState){ try{ applyState(JSON.parse(savedState)); }catch{} }
+  refreshProfiles();
+});
 </script>
 </body>
 </html>
@@ -992,7 +1355,8 @@ loadOptions();
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTML
+    # no-cache: UI updates reach LAN devices without a hard refresh
+    return HTMLResponse(HTML, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api")

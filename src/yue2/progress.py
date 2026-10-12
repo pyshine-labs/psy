@@ -121,6 +121,11 @@ class Progress:
         if not self.enabled:
             return
         try:
+            # Console/file may use a legacy codepage (e.g. cp1252 on Windows);
+            # replace unmappable characters instead of raising UnicodeEncodeError.
+            enc = getattr(self.stream, "encoding", None) or "utf-8"
+            if enc.lower().replace("-", "") not in ("utf8",):
+                text = text.encode(enc, errors="replace").decode(enc, errors="replace")
             if self._tty:
                 text = text[:self._columns - 1]
                 self.stream.write("\r" + text + " " * max(0, self._line_width - len(text)))

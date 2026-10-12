@@ -45,9 +45,10 @@ a friendly browser interface so you can:
 - Play the result inside the page, download it as `.flac`, or open its
   containing folder.
 
-The full YuE2 source is included verbatim under [`src/yue2`](./src/yue2). No
-upstream code is modified; this repo only adds the WebUI launcher and a few
-convenience scripts.
+The full YuE2 source is included under [`src/yue2`](./src/yue2). Upstream code
+is unchanged except for a few small Windows patches: all artifact/log files
+are written as UTF-8 and progress output replaces unmappable characters, so
+Chinese (and any non-ASCII) lyrics work out of the box.
 
 yue2 webui
 
@@ -61,6 +62,19 @@ yue2 webui
 - **Auto-discovery** of cached Hugging Face models and CUDA devices.
 - **Backend selector**: `torch-eager` (native SDPA, works without flash-attn),
   `torch` (CUDA graphs + flash), or `vllm`.
+- **Profiles — save / load / delete** named snapshots of the entire form
+  (style, lyrics, model & backend settings) as JSON in `profiles/`. Profiles
+  live on the server, so they are shared by every device on your LAN.
+- **UI language: English / 中文** — every label, button, preset and status
+  message switches via the header selector (auto-detects your browser
+  language on first visit). Model-facing tags always stay English for
+  generation quality.
+- **CUDA out-of-memory auto-fallback** — if a generation OOMs, the WebUI
+  automatically retries once with fp8 weights, AR-offload-to-RAM and a
+  smaller VAE tile budget instead of dying with a traceback.
+- **Non-ASCII lyrics safe** — request/plan/result artifacts, worker logs and
+  console progress are UTF-8 / error-replaced, so Chinese lyrics never hit
+  the Windows "charmap codec can't encode" error.
 - **One-click launchers** for Windows (`run.bat`) and Linux/macOS (`run.sh`)
   that auto-detect your venv and open the browser.
 - **Windows-safe**: uses the Selector event loop to avoid cosmetic
@@ -198,7 +212,8 @@ at <http://127.0.0.1:7860>.
 
 ```bash
 python webui.py
-# or with custom host/port
+# or with custom host/port — use 0.0.0.0 to reach the UI from other
+# devices on your LAN (phone, tablet, another PC)
 python webui.py --host 0.0.0.0 --port 8000
 ```
 
@@ -212,7 +227,12 @@ python webui.py --host 0.0.0.0 --port 8000
 3. Click **Generate Music**. The Progress panel streams every pipeline stage
    (Resolving → Verifying → Loading → Planning score → Generating song →
    Synthesizing audio → Loading audio decoder → Decoding audio).
-4. When it finishes, the Result panel appears with:
+4. **Profiles** — type a name and click **Save** to snapshot the whole form;
+   pick one from the dropdown and **Load** to restore it, or **Delete** to
+   remove it. Profiles are stored server-side in `profiles/*.json`.
+5. **Language** — use the selector in the top-right header to switch the
+   whole interface between English and 中文.
+6. When it finishes, the Result panel appears with:
    - an inline `<audio>` player,
    - **Download .flac**,
    - **Open containing folder** (highlights the generated `audio.flac` in
@@ -236,8 +256,9 @@ psy/
 ├── webui.py              # PSY Music Studio WebUI (FastAPI + SSE)
 ├── run.bat               # Windows launcher
 ├── run.sh                # Linux/macOS launcher
+├── profiles/             # Saved UI profiles (created at runtime, git-ignored)
 ├── examples/             # Original YuE2 example lyrics + generate.py
-├── src/yue2/             # Unmodified YuE2 package (cli, pipeline, models)
+├── src/yue2/             # YuE2 package (cli, pipeline, models) + UTF-8 patches
 ├── tests/                # YuE2 test suite
 ├── docs/                 # YuE2 documentation
 ├── skills/               # YuE2 skill / agent definitions
@@ -274,4 +295,6 @@ YuE2 model and the m-a-p team as the source of the generation pipeline.
 | `USE_FLASH_ATTENTION was not enabled for build` | Switch backend to `torch-eager` in the WebUI. |
 | `backend must be torch, torch-eager, or vllm` | Refresh the page (stale dropdown) and pick a backend value. |
 | `ConnectionResetError [WinError 10054]` in console | Cosmetic only — already handled by the Selector event loop in `webui.py`. Generation still succeeds. |
+| `torch.cuda.OutOfMemoryError` | Close other GPU apps, or let the auto-fallback handle it — the WebUI retries once with fp8 weights + AR-to-RAM offload (visible in the log). |
+| `'charmap' codec can't encode character ...` | Fixed in this repo: artifacts, logs and progress are written as UTF-8 (`PYTHONUTF8=1` is set by `run.bat`). Restart via `run.bat` after updating. |
 | First Generate is very slow | Model weights download (~6 GiB) and are cached. Subsequent runs skip the download. |

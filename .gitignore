@@ -32,3 +32,6 @@ outputss/
 
 # Local Hugging Face model cache (do not commit multi-GiB weights)
 .huggingface/
+
+# Saved UI profiles (machine-local user data)
+profiles/
