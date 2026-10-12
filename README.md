@@ -5,10 +5,19 @@
 <h1 align="center">PSY Music Studio</h1>
 
 <p align="center">
-  A browser-based studio for AI song generation, built on top of the
-  <a href="https://github.com/multimodal-art-projection/YuE">YuE2</a> pipeline.
-  Pick a model, enter style + lyrics, watch live progress, and play, download,
-  or open the generated song directly from the UI.
+  <strong>yue2 webui</strong> — a free, open-source AI music generator that turns
+  <em>style + lyrics</em> into full songs with vocals, 100% locally on your own GPU.
+  Built on the <a href="https://github.com/multimodal-art-projection/YuE">YuE2</a> pipeline.
+  No sign-up, no subscription, no cloud credits, no watermarks — your lyrics never
+  leave your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/pyshine-labs/psy/stargazers"><img src="https://img.shields.io/github/stars/pyshine-labs/psy?style=social&label=Star" alt="GitHub stars"></a>
+  <a href="https://github.com/pyshine-labs/psy/network/members"><img src="https://img.shields.io/github/forks/pyshine-labs/psy?style=social" alt="GitHub forks"></a>
+  <a href="https://github.com/pyshine-labs/psy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pyshine-labs/psy" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+  <a href="https://www.youtube.com/watch?v=9RxxBSqbKLE"><img src="https://img.shields.io/badge/%E2%96%B6_Watch_the_demo-YouTube-red" alt="YouTube demo"></a>
 </p>
 
 <p align="center">
@@ -19,6 +28,7 @@
   <a href="#installation">Installation</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#features">Features</a> ·
+  <a href="#why-psy-music-studio">Why PSY</a> ·
   <a href="#credits--license">Credits</a>
 </p>
 
@@ -29,6 +39,17 @@
 [![Watch the video](https://img.youtube.com/vi/9RxxBSqbKLE/maxresdefault.jpg)](https://www.youtube.com/watch?v=9RxxBSqbKLE)
 
 </div>
+
+## Quick start (TL;DR)
+
+```powershell
+git clone https://github.com/pyshine-labs/psy.git
+cd psy
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1          # Windows (source .venv/bin/activate on Linux/macOS)
+pip install -e . fastapi uvicorn
+.\run.bat                             # or ./run.sh — opens the studio in your browser
+```
 
 ## Overview
 
@@ -50,7 +71,28 @@ is unchanged except for a few small Windows patches: all artifact/log files
 are written as UTF-8 and progress output replaces unmappable characters, so
 Chinese (and any non-ASCII) lyrics work out of the box.
 
-yue2 webui
+## Why PSY Music Studio?
+
+Most AI music generators (Suno, Udio, Riffusion…) are hosted services: you pay
+per song, wait in queues, and the lyrics + audio live on someone else's server.
+PSY Music Studio is the opposite — a **local, offline AI song generator**:
+
+- 🆓 **Free & open source** — unlimited song generation, no per-track credits
+- 🔒 **Private by design** — text-to-song runs entirely on your hardware; no
+  account, no telemetry, no uploads
+- 🎤 **Full songs with vocals** — verse/chorus structure, male/female/duet
+  vocals, in English, Mandarin and 10+ languages
+- 🎛️ **Pro-grade output** — studio-quality **FLAC** audio you can download and
+  use; see `MODEL_LICENSE` for commercial-use terms
+- 🖥️ **Bring your own GPU** — anything from 8 GiB VRAM (fp8 quantization +
+  CPU offload) to multi-GPU setups; Windows, Linux, macOS
+- 🌐 **Bilingual UI** — English / 中文 interface, multilingual lyrics
+- 🧩 **The missing WebUI for YuE2** — model picker, quantization, backends
+  (torch-eager / torch / vLLM), live progress, profiles, one-click launchers
+
+If you generate songs with Suno-like prompts but want them **generated locally
+with AI** — this is your tool. Works great for songwriters, content creators,
+game developers, and anyone experimenting with open-source music AI models.
 
 ## Features
 
@@ -270,6 +312,28 @@ psy/
 ├── MODEL_LICENSE         # Model weight license
 └── THIRD_PARTY_NOTICES.md
 ```
+
+## Support the project ⭐
+
+If PSY Music Studio helped you make a song, please **give it a star** — it is
+the single best way to help other people discover free, local AI music
+generation.
+
+<p align="center">
+  <a href="https://github.com/pyshine-labs/psy">
+    <img src="https://img.shields.io/badge/%E2%AD%90_Star_us_on_GitHub-pyshine--labs%2Fpsy-ffdd00?style=for-the-badge&logo=github" alt="Star PSY Music Studio on GitHub">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://star-history.com/#pyshine-labs/psy&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date" width="600" />
+    </picture>
+  </a>
+</p>
 
 ## Credits & License
 
