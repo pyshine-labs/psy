@@ -589,6 +589,21 @@ HTML = r"""<!doctype html>
       <option data-zh="雷鬼（阳光男声）" data-preset='{"lang":"English","gender":"male","genre":"reggae","instruments":["skanking guitar","organ shuffle","deep dub bass","one-drop drum pattern"],"tempo":85,"mood":["cheerful","laid-back"]}'>Reggae (sunny, male)</option>
     </select>
 
+    <!-- Song Template: loads a complete sample song (style + lyrics) -->
+    <label for="songTemplate"><span data-i18n="labelSongTpl">Song Template</span> <span class="badge" data-i18n="badgeSampleLyrics">sample lyrics</span></label>
+    <select id="songTemplate">
+      <option value="" data-i18n="tplPlaceholder">— Load a full sample song into Style + Lyrics —</option>
+      <option value="pop" data-zh="流行 · 霓虹夜（女声）">Pop · Neon Nights (female)</option>
+      <option value="rock" data-zh="摇滚 · 不屈（男声）">Rock · Unbroken (male)</option>
+      <option value="hiphop" data-zh="嘻哈 · 崛起（男声）">Hip-Hop · Rise (male)</option>
+      <option value="edm" data-zh="电子 · 复活夜（女声）">EDM · Come Alive (female)</option>
+      <option value="ballad" data-zh="抒情 · 静静时光（女声钢琴）">Ballad · Quiet Hours (female piano)</option>
+      <option value="mandarin" data-zh="华语流行 · 把歌唱给你听">华语流行 · 把歌唱给你听 (Mandarin)</option>
+      <option value="jazz" data-zh="爵士 · 再跳一曲（女声）">Jazz · One More Dance (female)</option>
+      <option value="cinematic" data-zh="史诗 · 黎明（合唱）">Cinematic · Rise of Dawn (choir)</option>
+      <option value="duet" data-zh="对唱 · 并肩同行（男女）">Duet · Side by Side (male + female)</option>
+    </select>
+
     <!-- Structured style builder -->
     <div class="grid4">
       <div>
@@ -844,6 +859,8 @@ const I18N = {
     headerSub:'style + lyrics \u2192 symbolic plan \u2192 song',
     inputs:'Inputs', genrePreset:'Genre Preset', badgeFillsAll:'fills all',
     presetPlaceholder:'\u2014 Pick a preset (or customise below) \u2014',
+    labelSongTpl:'Song Template', badgeSampleLyrics:'sample lyrics',
+    tplPlaceholder:'\u2014 Load a full sample song into Style + Lyrics \u2014',
     labelLang:'Language', labelVocal:'Vocal', labelGenre:'Genre', labelTempo:'Tempo',
     vocalFemale:'Female', vocalMale:'Male', vocalDuet:'Duet (M+F)', vocalChoir:'Choir',
     labelInstruments:'Instruments', badgeToggle:'click to toggle',
@@ -881,6 +898,8 @@ const I18N = {
     headerSub:'风格 + 歌词 \u2192 符号规划 \u2192 歌曲',
     inputs:'输入', genrePreset:'流派预设', badgeFillsAll:'一键填充',
     presetPlaceholder:'\u2014 选择预设（或在下方自定义）\u2014',
+    labelSongTpl:'歌曲模板', badgeSampleLyrics:'示例歌词',
+    tplPlaceholder:'\u2014 加载完整示例歌曲（风格 + 歌词）\u2014',
     labelLang:'语言', labelVocal:'人声', labelGenre:'流派', labelTempo:'速度',
     vocalFemale:'女声', vocalMale:'男声', vocalDuet:'对唱（男+女）', vocalChoir:'合唱',
     labelInstruments:'乐器', badgeToggle:'点击选择',
@@ -1334,6 +1353,267 @@ $('stopBtn').addEventListener('click', async ()=>{
   if(eventSource){ eventSource.close(); eventSource=null; }
   setStatus('err',t('stopped'));
   $('generateBtn').disabled=false;
+});
+
+// ---- Song templates: complete sample songs (one click fills style + lyrics) ----
+const SONG_TEMPLATES = {
+  pop: {
+    style:{lang:'English',gender:'female',genre:'pop',tempo:100,
+      instruments:['acoustic piano','rounded bass','light drums'],
+      mood:['warm','lyrical memorable melody']},
+    lyrics:`[Verse]
+City lights are blinking slow tonight,
+Every window tells a story in the glow.
+
+[Chorus]
+We are dancing on the edge of the night,
+Holding on to every spark of light,
+Turn the music up and let it go,
+This is all we need, this is all we know.
+
+[Verse]
+Morning came and painted gold the street,
+Every shadow moved along beneath our feet.
+
+[Chorus]
+We are dancing on the edge of the night,
+Holding on to every spark of light,
+Turn the music up and let it go,
+This is all we need, this is all we know.
+
+[Outro]
+One more chorus in the morning glow.`
+  },
+  rock: {
+    style:{lang:'English',gender:'male',genre:'rock',tempo:140,
+      instruments:['distorted electric guitar','driving drums'],
+      mood:['energetic','anthemic','raw']},
+    lyrics:`[Verse]
+They said sit down, keep your voice low,
+But the fire in my chest has nowhere left to go.
+
+[Chorus]
+We are the thunder, we are the flame,
+We will not beg and we will not tame,
+Break the silence, break the chain,
+Roar like a storm through the rain.
+
+[Verse]
+Every wall they built is coming down,
+Every scar I own is my crown.
+
+[Chorus]
+We are the thunder, we are the flame,
+We will not beg and we will not tame,
+Break the silence, break the chain,
+Roar like a storm through the rain.
+
+[Bridge]
+Softer now, one vow, one name...
+
+[Chorus]
+We are the thunder, we are the flame,
+Break the silence, break the chain!`
+  },
+  hiphop: {
+    style:{lang:'English',gender:'male',genre:'hip-hop',tempo:90,
+      instruments:['808 bass','trap hi-hats','acoustic piano'],
+      mood:['aggressive','street']},
+    lyrics:`[Verse]
+Woke up with a vision, pockets full of static,
+Every closed door taught me to be automatic,
+Counted every no like a stack of paper,
+Turned the whole grind into my own savior.
+
+[Chorus]
+From the bottom to the light, watch me rise,
+Concrete flowers grow where the dark never dies.
+
+[Verse]
+Second round, same fight, colder shoulders,
+Made a ladder out of every boulder.
+
+[Chorus]
+From the bottom to the light, watch me rise,
+Concrete flowers grow where the dark never dies.`
+  },
+  edm: {
+    style:{lang:'English',gender:'female',genre:'electronic',tempo:128,
+      instruments:['synth pads','deep sub-bass','arpeggios'],
+      mood:['ethereal','dreamy','atmospheric']},
+    lyrics:`[Verse]
+Hands up, the bass is a heartbeat,
+Colors are moving beneath our feet.
+
+[Chorus]
+Run into the light, tonight we come alive,
+Louder than the dark, together we will drive,
+Hold the moment, hold it high,
+We come alive, alive tonight.
+
+[Verse]
+Signals are spinning, the sky's a screen,
+Everything glitters in ultraviolet green.
+
+[Chorus]
+Run into the light, tonight we come alive,
+Louder than the dark, together we will drive,
+Hold the moment, hold it high,
+We come alive, alive tonight.`
+  },
+  ballad: {
+    style:{lang:'English',gender:'female',genre:'pop',tempo:72,
+      instruments:['acoustic piano','string section'],
+      mood:['intimate','heartfelt','unhurried phrasing']},
+    lyrics:`[Verse]
+Your coffee cup is still beside the door,
+The way you left it, like the night before.
+
+[Chorus]
+And I miss you in the quiet,
+In the ordinary hours,
+In the kitchen light at midnight,
+In the smell of dying flowers,
+I miss you in the quiet.
+
+[Verse]
+Your sweater still is hanging by the stair,
+I cannot teach my hands to leave it there.
+
+[Chorus]
+And I miss you in the quiet,
+In the ordinary hours,
+In the kitchen light at midnight,
+In the smell of dying flowers,
+I miss you in the quiet.
+
+[Bridge]
+Maybe love is just the shape of what remains.
+
+[Chorus]
+And I miss you in the quiet,
+In the ordinary hours.`
+  },
+  mandarin: {
+    style:{lang:'Mandarin',gender:'female',genre:'pop',tempo:88,
+      instruments:['acoustic piano','rounded bass','light drums'],
+      mood:['warm','lyrical memorable melody']},
+    lyrics:`[Verse]
+霓虹灯下影子拉得很长，
+旧街的风还带着一点凉。
+
+[Chorus]
+把这首歌轻轻地唱，
+唱给远方想念的人听，
+无论世界变得多匆忙，
+心里的光从不曾熄灭。
+
+[Verse]
+时间带走了青春的模样，
+带不走心里那道温柔的光。
+
+[Chorus]
+把这首歌轻轻地唱，
+唱给远方想念的人听，
+无论世界变得多匆忙，
+心里的光从不曾熄灭。
+
+[Outro]
+晚安，好梦，明天再见。`
+  },
+  jazz: {
+    style:{lang:'English',gender:'female',genre:'jazz',tempo:95,
+      instruments:['acoustic piano','tenor saxophone','upright bass','brushed drums'],
+      mood:['intimate','spacious modern harmony','natural phrasing']},
+    lyrics:`[Verse]
+Midnight pours like honey through the bar,
+The saxophone knows exactly who we are.
+
+[Chorus]
+Slow down, let the record spin,
+One more dance before the morning comes in,
+The city can wait, the world can spin,
+Slow down, and let the night begin.
+
+[Verse]
+Your laughter trades its secrets with the smoke,
+Two strangers in a song that hasn't spoke.
+
+[Chorus]
+Slow down, let the record spin,
+One more dance before the morning comes in.`
+  },
+  cinematic: {
+    style:{lang:'English',gender:'choir',genre:'orchestral',tempo:70,
+      instruments:['string section','french horns','timpani','choir'],
+      mood:['epic','cinematic']},
+    lyrics:`[Verse]
+Beyond the mountains, beyond the sea,
+A thousand voices call to me.
+
+[Chorus]
+Rise, oh rise, the dawn is near,
+Carry the fire through the fear,
+Hand in hand we chart the way,
+Night is old but breaks to day.
+
+[Verse]
+Every banner torn, every promise kept,
+The road remembers every step.
+
+[Chorus]
+Rise, oh rise, the dawn is near,
+Carry the fire through the fear,
+Hand in hand we chart the way,
+Night is old but breaks to day.`
+  },
+  duet: {
+    style:{lang:'English',gender:'duet',genre:'pop',tempo:96,
+      instruments:['steel guitar','rounded bass','light drums'],
+      mood:['warm','heartfelt']},
+    lyrics:`[Verse]
+You called me when the sky was gray,
+I heard your voice and found my way.
+
+[Chorus]
+Two hearts on one road, side by side,
+Through every storm and every tide,
+You take my hand, I take the fall,
+Side by side through it all.
+
+[Verse]
+We built a lamp from every fight,
+A little warmth against the night.
+
+[Chorus]
+Two hearts on one road, side by side,
+Through every storm and every tide,
+You take my hand, I take the fall,
+Side by side through it all.`
+  },
+};
+$('songTemplate').addEventListener('change', e=>{
+  const tpl = SONG_TEMPLATES[e.target.value];
+  if(!tpl){ return; }
+  const s = tpl.style;
+  $('selLang').value = s.lang;
+  $('selGender').value = s.gender;
+  $('selGenre').value = s.genre;
+  $('selTempo').value = String(s.tempo);
+  document.querySelectorAll('.chip.active').forEach(c=>c.classList.remove('active'));
+  (s.instruments||[]).forEach(ins=>{
+    const c = document.querySelector(`#instrumentChips .chip[data-ins="${ins}"]`);
+    if(c) c.classList.add('active');
+  });
+  (s.mood||[]).forEach(m=>{
+    const c = document.querySelector(`#moodChips .chip[data-mood="${m}"]`);
+    if(c) c.classList.add('active');
+  });
+  if(manualEdit) $('toggleEditBtn').click(); // back to builder so chips regenerate
+  buildStyle();
+  $('genrePreset').value = '';
+  $('lyrics').value = tpl.lyrics;
+  localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
 });
 
 // ---- Init: restore UI language + last state, then load options/profiles ----
