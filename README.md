@@ -326,11 +326,11 @@ generation.
 </p>
 
 <p align="center">
-  <a href="https://star-history.com/#pyshine-labs/psy&Date">
+  <a href="https://www.star-history.com/?type=date&repos=pyshine-labs%2Fpsy">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pyshine-labs/psy&type=Date" width="600" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=pyshine-labs/psy&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=pyshine-labs/psy&type=date&legend=top-left" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pyshine-labs/psy&type=date&legend=top-left" />
     </picture>
   </a>
 </p>
