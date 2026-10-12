@@ -49,6 +49,8 @@ The full YuE2 source is included verbatim under [`src/yue2`](./src/yue2). No
 upstream code is modified; this repo only adds the WebUI launcher and a few
 convenience scripts.
 
+yue2 webui
+
 ## Features
 
 - **No build step** — one `webui.py` file, vanilla HTML/CSS/JS.
