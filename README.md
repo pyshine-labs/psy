@@ -162,6 +162,194 @@ Twinkle, twinkle little star, how I wonder what you are.
 
 [⬇ Download female.flac](./assests/female.flac) (13.2 MB)
 
+## Song templates — copy & paste
+
+Everything below goes into the two text boxes in the **Inputs** panel:
+the **Style / Tags** line (or let the Genre Preset / chips build it for you)
+and the **Lyrics** box. Replace the sample lines with your own and keep the
+`[Verse]` / `[Chorus]` markers — YuE2 uses them to structure the song.
+
+### How a style tag is built
+
+```
+Language, vocal, genre, instruments, mood / phrasing, tempo
+    ↓         ↓       ↓         ↓              ↓           ↓
+ English, female voice, pop, acoustic piano + light drums, warm, 88 BPM
+```
+
+- **Language** — `English`, `Mandarin`, `Spanish`, `Japanese`, … (also the
+  language the model sings in)
+- **Vocal** — `male voice`, `female voice`, `duet (male + female)`, `choir`
+- **Instruments** — 2–4 works best; e.g. `acoustic piano, 808 bass, trap hi-hats`
+- **Mood / phrasing** — `warm`, `energetic`, `melancholic`, `anthemic`,
+  `lyrical memorable melody`, `unhurried phrasing`, …
+- **Tempo** — BPM number: ballads 60–80, pop 88–120, dance 120–130, rock 130–150,
+  punk 160–180
+
+### Template 1 — Pop (radio-friendly)
+
+> Style: `English, female voice, pop, acoustic piano, rounded bass, light drums, warm, lyrical memorable melody, 100 BPM`
+
+```
+[Verse]
+Type two lines about the moment the story starts...
+and two more lines that set the scene...
+
+[Chorus]
+Type the hook here — short, catchy, repeatable...
+Make it the emotional punchline of the song...
+
+[Verse]
+Second scene — what changed after the chorus...
+
+[Chorus]
+Repeat the hook...
+
+[Outro]
+One closing line, fading out...
+```
+
+### Template 2 — Rock anthem
+
+> Style: `English, male voice, rock, distorted electric guitar, heavy bass, driving drums, energetic, anthemic, raw, 140 BPM`
+
+```
+[Verse]
+Gritty opening — where the frustration comes from...
+
+[Chorus]
+Big shout-along hook — one idea, loud...
+
+[Verse]
+Escalate — stakes get higher...
+
+[Chorus]
+Repeat the hook...
+
+[Bridge]
+Strip down — half volume, one promise or threat...
+
+[Chorus]
+Final repeat — max energy...
+```
+
+### Template 3 — Hip-hop / rap
+
+> Style: `English, male voice, hip-hop, deep 808 bass, crisp snare, dark piano loop, hi-hat triplets, aggressive, street, confident, 90 BPM`
+
+```
+[Verse]
+Eight to twelve bars — long lines, internal rhymes...
+
+[Verse]
+Second verse — flip the perspective or answer back...
+
+[Chorus]
+Short chant — 2 lines max, easy to remember...
+```
+
+### Template 4 — EDM / dance
+
+> Style: `English, female voice, electronic, analog synth pads, pulsing bass, four-on-the-floor kick, shimmering arpeggios, ethereal, dreamy, atmospheric, 128 BPM`
+
+```
+[Verse]
+Light, airy lines — let the beat do the work...
+
+[Chorus]
+Simple uplifting hook — 4 short lines...
+
+[Verse]
+Second drop setup...
+
+[Chorus]
+Repeat the hook...
+```
+
+### Template 5 — Heartfelt ballad
+
+> Style: `English, female voice, pop, acoustic piano, warm strings, intimate, heartfelt, unhurried phrasing, 72 BPM`
+
+```
+[Verse]
+One small concrete detail — a room, a habit, a name...
+
+[Chorus]
+The feeling, said plainly — this is the line people hum...
+
+[Bridge]
+The turn — what you wish you had said...
+
+[Chorus]
+Final repeat, softer or bigger...
+```
+
+### Template 6 — 华语流行 (Mandarin pop)
+
+> Style: `Mandarin, female voice, pop, acoustic piano, rounded bass, light drums, warm, lyrical memorable melody, 88 BPM`
+
+```
+[Verse]
+第一段主歌 — 两行场景，两行情绪...
+
+[Chorus]
+副歌 — 短句、易记、重复核心意象...
+
+[Verse]
+第二段主歌 — 故事推进...
+
+[Chorus]
+副歌重复...
+
+[Outro]
+尾句收束...
+```
+
+### Template 7 — Jazz lounge
+
+> Style: `English, female voice, jazz, acoustic piano, tenor saxophone, upright bass, brushed drums, intimate, spacious modern harmony, natural phrasing, 95 BPM`
+
+```
+[Verse]
+Conversational opening — like telling a friend a secret...
+
+[Chorus]
+Smoky refrain — one clever turn of phrase...
+
+[Verse]
+Second take on the story...
+
+[Chorus]
+Repeat the refrain...
+```
+
+### Template 8 — Epic cinematic (choir)
+
+> Style: `English, female voice, orchestral, full string section, french horns, timpani, dramatic choir, soaring, epic, cinematic, grand, 70 BPM`
+
+```
+[Verse]
+Set the world — vast imagery, few words...
+
+[Chorus]
+The anthem moment — 2–4 lines built to swell...
+
+[Bridge]
+Quiet before the final rise...
+
+[Chorus]
+Final swell...
+```
+
+### Tips
+
+- **Short songs first**: 2 verses + 2 choruses (~1.5–3 min) generates faster
+  and more reliably than very long lyrics. Output is capped at ~6 minutes.
+- **Style tags are English keywords** even when the lyrics are Chinese — the
+  model follows them best that way.
+- **One idea per section** — YuE2 treats each `[Chorus]` as the memorable part.
+- Save your best combos with **Profile → Save** so you can reload them later.
+
 ## Installation
 
 You need **Python 3.10+** and (optionally, but strongly recommended) an
