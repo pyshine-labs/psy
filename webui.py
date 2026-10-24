@@ -1065,6 +1065,7 @@ const I18N = {
     btnNukeGpu:'Nuke all VRAM (stops this app)',
     gpuNukeConfirm:'This cancels the running song, frees ALL VRAM held by this WebUI (the app will close), and kills other python GPU processes. Re-run run.bat afterwards. Continue?',
     gpuNukeMsg:'All VRAM released. Re-run run.bat to start the WebUI again.',
+    gpuOffline:'Server offline — re-run run.bat to restart',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -1120,6 +1121,7 @@ const I18N = {
     btnNukeGpu:'彻底释放显存（会关闭本应用）',
     gpuNukeConfirm:'将中止正在生成的歌曲、释放本 WebUI 占用的全部显存（应用会关闭），并结束其他 python GPU 进程。之后重新运行 run.bat 即可。继续？',
     gpuNukeMsg:'显存已全部释放。重新运行 run.bat 可再次启动 WebUI。',
+    gpuOffline:'服务器已离线 — 重新运行 run.bat 启动',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
@@ -1832,10 +1834,28 @@ $('songTemplate').addEventListener('change', e=>{
 // ---- GPU monitor (live) + VRAM killer ----
 function fmtGB(mib){ return (mib/1024).toFixed(1); }
 function gpuColor(frac){ return frac<0.6 ? '#22c55e' : (frac<0.85 ? '#eab308' : '#ef4444'); }
+let gpuFailCount = 0;
+function gpuMarkOffline(){
+  $('gpuName').textContent = t('gpuOffline');
+  $('gpuBarFill').style.width = '0%';
+  $('gpuMemText').textContent = '—';
+  $('gpuUtilText').textContent = '—';
+  $('gpuProcList').textContent = '';
+}
 async function refreshGpu(){
   if(document.hidden) return;
   let g;
-  try{ g = await (await fetch('/api/gpu')).json(); }catch(e){ return; }
+  try{
+    const resp = await fetch('/api/gpu');
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    g = await resp.json();
+  }catch(e){
+    // server unreachable (e.g. after Nuke-all) — show offline state instead
+    // of leaving stale numbers on screen
+    if(++gpuFailCount >= 2) gpuMarkOffline();
+    return;
+  }
+  gpuFailCount = 0;
   if(!g.available){ $('gpuName').textContent = g.reason || t('gpuUnavailable'); return; }
   $('gpuName').textContent = g.name;
   const frac = g.mem_total>0 ? g.mem_used/g.mem_total : 0;
@@ -1875,6 +1895,7 @@ $('gpuNukeBtn').addEventListener('click', async ()=>{
   if(!confirm(t('gpuNukeConfirm'))) return;
   const btn = $('gpuNukeBtn'); btn.disabled = true;
   try{ await fetch('/api/gpu/kill?nuke=1',{method:'POST'}); }catch(e){}
+  gpuMarkOffline();
   alert(t('gpuNukeMsg'));
   btn.disabled = false;
 });
