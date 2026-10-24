@@ -464,6 +464,118 @@ def delete_profile(name: str):
 
 
 # --------------------------------------------------------------------------- #
+# GPU monitor + VRAM killer (no torch import here: keeps server VRAM-free)
+# --------------------------------------------------------------------------- #
+try:
+    import shutil as _shutil
+    _NVIDIA_SMI = _shutil.which("nvidia-smi")
+except Exception:
+    _NVIDIA_SMI = None
+
+
+def _gpu_processes():
+    """Processes currently holding GPU memory (pid, name, MiB or None).
+
+    On Windows/WDDM drivers per-process memory is often reported as [N/A].
+    """
+    import subprocess
+    out = subprocess.run(
+        [_NVIDIA_SMI, "--query-compute-apps=pid,process_name,used_memory",
+         "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=8).stdout
+    procs = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.strip().rsplit(",", 2)]
+        if len(parts) != 3:
+            continue
+        pid_s, name, mem_s = parts
+        try:
+            pid = int(pid_s)
+        except ValueError:
+            continue
+        try:
+            mem = float(mem_s)
+        except ValueError:
+            mem = None  # [N/A] on WDDM
+        procs.append({"pid": pid, "name": name or "unknown", "mem": mem})
+    return procs
+
+
+def _is_compute_process(name: str) -> bool:
+    """True for interpreter-style compute processes we may force-kill.
+
+    Desktop/GUI apps (explorer, browsers, overlay tools, ...) hold GPU
+    memory too but must never be terminated; on Windows/WDDM the actual
+    VRAM-heavy ML workers are python interpreters.
+    """
+    base = (name or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return base.startswith(("python", "pythonw"))
+
+
+@app.get("/api/gpu")
+def gpu_stats():
+    if not _NVIDIA_SMI:
+        return {"available": False, "reason": "nvidia-smi not found"}
+    import subprocess
+    try:
+        lines = subprocess.run(
+            [_NVIDIA_SMI, "--query-gpu=name,memory.used,memory.total,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=8).stdout.strip().splitlines()
+        if not lines:
+            return {"available": False, "reason": "no GPU reported"}
+        vals = [v.strip() for v in lines[0].split(",")]
+        used = float(vals[1]) if len(vals) > 1 and vals[1] else 0.0
+        total = float(vals[2]) if len(vals) > 2 and vals[2] else 0.0
+        util = vals[3] if len(vals) > 3 and vals[3] else None
+    except Exception as exc:
+        return {"available": False, "reason": f"nvidia-smi failed: {exc}"}
+    me = os.getpid()
+    try:
+        procs = _gpu_processes()
+    except Exception:
+        procs = []
+    for p in procs:
+        p["self"] = (p["pid"] == me)
+        p["killable"] = _is_compute_process(p["name"])
+    return {"available": True, "name": vals[0], "mem_used": used,
+            "mem_total": total,
+            "util": int(util) if util and util.isdigit() else None,
+            "processes": procs, "self_pid": me}
+
+
+@app.post("/api/gpu/kill")
+def gpu_kill():
+    """Force-kill every GPU compute process except this server (and parent)."""
+    if not _NVIDIA_SMI:
+        return JSONResponse({"error": "nvidia-smi not available"}, status_code=400)
+    protected = {os.getpid(), os.getppid()}
+    try:
+        procs = _gpu_processes()
+    except Exception as exc:
+        return JSONResponse({"error": f"nvidia-smi failed: {exc}"}, status_code=500)
+    killed, failed, skipped = [], [], []
+    for p in procs:
+        pid = p["pid"]
+        if pid in protected:
+            skipped.append({**p, "reason": "protected"})
+        elif not _is_compute_process(p["name"]):
+            skipped.append({**p, "reason": "not a compute process"})
+        else:
+            try:
+                import subprocess
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                   capture_output=True, timeout=10, check=True)
+                else:
+                    os.kill(pid, 9)
+                killed.append(p)
+            except Exception as exc:
+                failed.append({**p, "error": str(exc)[:120]})
+    return {"killed": killed, "failed": failed, "skipped": skipped}
+
+
+# --------------------------------------------------------------------------- #
 # HTML UI (single page, vanilla JS, no build step)
 # --------------------------------------------------------------------------- #
 HTML = r"""<!doctype html>
@@ -831,6 +943,17 @@ We will sing beyond the night</textarea>
       <button class="secondary" id="profileDeleteBtn" data-i18n="btnDelete">Delete</button>
     </div>
 
+    <h2 style="margin-top:18px" data-i18n="hGpu">GPU Monitor</h2>
+    <div class="hint" id="gpuName">—</div>
+    <div class="progress-bar" id="gpuBar" style="height:8px;margin-top:6px"><div id="gpuBarFill" style="width:0%"></div></div>
+    <div class="grid2" style="margin-top:4px">
+      <div class="hint" id="gpuMemText">—</div>
+      <div class="hint" id="gpuUtilText" style="text-align:right">—</div>
+    </div>
+    <div id="gpuProcList" class="hint" style="margin-top:6px"></div>
+    <button class="secondary" id="gpuKillBtn" style="margin-top:8px" data-i18n="btnKillGpu">Free VRAM (kill GPU processes)</button>
+    <p class="hint" data-i18n="hintKillGpu">Ends other python compute processes holding GPU memory (desktop apps are never touched; this WebUI is protected).</p>
+
     <div class="actions">
       <button id="generateBtn" data-i18n="btnGenerate">Generate Music</button>
       <button id="stopBtn" class="secondary" disabled data-i18n="btnStop">Stop</button>
@@ -884,6 +1007,11 @@ const I18N = {
     hintMood:'Feeling and singing style of the performance',
     hintStyle:'Auto-built from the options above \u2014 click the \u270f\ufe0f button to edit it manually',
     hintLyrics:'Structure the song with markers: [Verse] / [Chorus] / [Bridge] / [Outro] \u2014 try a Song Template for a full example',
+    hGpu:'GPU Monitor', btnKillGpu:'Free VRAM (kill GPU processes)',
+    hintKillGpu:'Ends other python compute processes holding GPU memory (desktop apps are never touched; this WebUI is protected).',
+    gpuUsed:'used', gpuUtil:'GPU util', gpuNoProcs:'No processes using the GPU',
+    gpuSelf:'this app', gpuKillConfirm:'Kill all GPU processes except this WebUI?',
+    gpuKilled:'Killed:', gpuFailed:'failed:', gpuUnavailable:'GPU stats unavailable',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -930,6 +1058,11 @@ const I18N = {
     hintMood:'演唱的情绪与风格',
     hintStyle:'由上方选项自动生成 \u2014 点击 \u270f\ufe0f 按钮可手动编辑',
     hintLyrics:'使用 [Verse] / [Chorus] / [Bridge] / [Outro] 标记构建歌曲段落 \u2014 可尝试歌曲模板查看完整示例',
+    hGpu:'GPU 监控', btnKillGpu:'一键释放显存（结束 GPU 进程）',
+    hintKillGpu:'结束其他占用显存的 python 计算进程（桌面应用不受影响；本 WebUI 受保护）。',
+    gpuUsed:'已用', gpuUtil:'GPU 利用率', gpuNoProcs:'当前没有进程占用 GPU',
+    gpuSelf:'本应用', gpuKillConfirm:'结束除本 WebUI 外的所有 GPU 进程？',
+    gpuKilled:'已结束：', gpuFailed:'失败：', gpuUnavailable:'无法获取 GPU 信息',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
@@ -1638,6 +1771,47 @@ $('songTemplate').addEventListener('change', e=>{
   $('lyrics').value = tpl.lyrics;
   localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
 });
+
+// ---- GPU monitor (live) + VRAM killer ----
+function fmtGB(mib){ return (mib/1024).toFixed(1); }
+function gpuColor(frac){ return frac<0.6 ? '#22c55e' : (frac<0.85 ? '#eab308' : '#ef4444'); }
+async function refreshGpu(){
+  if(document.hidden) return;
+  let g;
+  try{ g = await (await fetch('/api/gpu')).json(); }catch(e){ return; }
+  if(!g.available){ $('gpuName').textContent = g.reason || t('gpuUnavailable'); return; }
+  $('gpuName').textContent = g.name;
+  const frac = g.mem_total>0 ? g.mem_used/g.mem_total : 0;
+  $('gpuBarFill').style.width = (frac*100).toFixed(1)+'%';
+  $('gpuBarFill').style.background = gpuColor(frac);
+  $('gpuMemText').textContent = fmtGB(g.mem_used)+' / '+fmtGB(g.mem_total)+' GiB '+t('gpuUsed')+' ('+(frac*100).toFixed(0)+'%)';
+  $('gpuUtilText').textContent = (g.util!=null) ? t('gpuUtil')+' '+g.util+'%' : '';
+  const el = $('gpuProcList');
+  if(!g.processes || !g.processes.length){ el.textContent = t('gpuNoProcs'); }
+  else{
+    el.innerHTML = g.processes.map(p =>
+      '<div>'+(p.killable&&!p.self?'⚡ ':'· ')+'PID '+p.pid+' · '+p.name+
+      (p.self?' <b>('+t('gpuSelf')+')</b>':'')+' — '+
+      (p.mem!=null ? fmtGB(p.mem)+' GiB' : 'n/a')+'</div>'
+    ).join('');
+  }
+}
+$('gpuKillBtn').addEventListener('click', async ()=>{
+  if(!confirm(t('gpuKillConfirm'))) return;
+  const btn = $('gpuKillBtn'); btn.disabled = true;
+  try{
+    const r = await (await fetch('/api/gpu/kill',{method:'POST'})).json();
+    if(r.error){ alert(r.error); }
+    else{
+      const k=(r.killed||[]).length, f=(r.failed||[]).length;
+      alert(t('gpuKilled')+' '+k+(f?(' · '+t('gpuFailed')+' '+f):''));
+    }
+  }catch(e){ alert('Kill request failed: '+e); }
+  btn.disabled = false;
+  refreshGpu(); setTimeout(refreshGpu, 2000);
+});
+setInterval(refreshGpu, 2500);
+refreshGpu();
 
 // ---- Init: restore UI language + last state, then load options/profiles ----
 (function initLang(){
