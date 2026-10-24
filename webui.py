@@ -1066,6 +1066,8 @@ const I18N = {
     gpuNukeConfirm:'This cancels the running song, frees ALL VRAM held by this WebUI (the app will close), and kills other python GPU processes. Re-run run.bat afterwards. Continue?',
     gpuNukeMsg:'All VRAM released. Re-run run.bat to start the WebUI again.',
     gpuOffline:'Server offline — re-run run.bat to restart',
+    serverOfflineWait:'Server offline — your inputs are saved. Re-run run.bat; the job will auto-resubmit when the server is back.',
+    resubmitting:'Server is back — resubmitting your generation…',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -1122,6 +1124,8 @@ const I18N = {
     gpuNukeConfirm:'将中止正在生成的歌曲、释放本 WebUI 占用的全部显存（应用会关闭），并结束其他 python GPU 进程。之后重新运行 run.bat 即可。继续？',
     gpuNukeMsg:'显存已全部释放。重新运行 run.bat 可再次启动 WebUI。',
     gpuOffline:'服务器已离线 — 重新运行 run.bat 启动',
+    serverOfflineWait:'服务器离线 — 输入已保存。重新运行 run.bat，服务器恢复后将自动重新提交任务。',
+    resubmitting:'服务器已恢复 — 正在重新提交生成任务…',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
@@ -1355,6 +1359,33 @@ function clearProgress(){
   $('audioPlayer').src='';
 }
 
+let pendingResubmit = null;
+async function serverReachable(){
+  try{ const r = await fetch('/api/gpu',{cache:'no-store'}); return r.ok; }catch(e){ return false; }
+}
+async function submitPayload(payload){
+  clearProgress();
+  setStatus('running',t('generating'));
+  $('generateBtn').disabled=true;
+  $('stopBtn').disabled=false;
+  logLine(t('submitting'));
+  try{
+    localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
+    const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!r.ok){ throw new Error(j.error||'Failed to start job'); }
+    currentJobId=j.job_id;
+    openStream(j.job_id);
+    return true;
+  }catch(e){
+    setStatus('err',t('error'));
+    $('errBox').classList.add('show');
+    $('errBox').textContent=String(e);
+    $('generateBtn').disabled=false;
+    $('stopBtn').disabled=true;
+    return false;
+  }
+}
 async function startGenerate(){
   const abcFile=$('abc').files[0];
   let abcText=null;
@@ -1374,24 +1405,15 @@ async function startGenerate(){
     budget:parseFloat($('budget').value)||24,
     offload_ar:$('offloadAr').value==='true',
   };
-  clearProgress();
-  setStatus('running',t('generating'));
-  $('generateBtn').disabled=true;
-  $('stopBtn').disabled=false;
-  logLine(t('submitting'));
-  try{
-    localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
-    const r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const j=await r.json();
-    if(!r.ok){ throw new Error(j.error||'Failed to start job'); }
-    currentJobId=j.job_id;
-    openStream(j.job_id);
-  }catch(e){
-    setStatus('err',t('error'));
-    $('errBox').classList.add('show');
-    $('errBox').textContent=String(e);
-    $('generateBtn').disabled=false;
-    $('stopBtn').disabled=true;
+  const ok = await submitPayload(payload);
+  if(!ok && !(await serverReachable())){
+    // Server is down (e.g. after Nuke-all): keep everything on screen and
+    // resubmit the exact same job automatically once the server is back.
+    pendingResubmit = payload;
+    $('errBox').classList.remove('show');
+    $('errBox').textContent='';
+    setStatus('idle',t('serverOfflineWait'));
+    logLine(t('serverOfflineWait'));
   }
 }
 
@@ -1869,6 +1891,12 @@ async function refreshGpu(){
         refreshProfiles();
       });
     }catch{}
+    // Auto-resubmit a generation that was submitted while the server was down
+    if(pendingResubmit){
+      const p = pendingResubmit; pendingResubmit = null;
+      logLine(t('resubmitting'));
+      setTimeout(()=>submitPayload(p), 1500); // give the server a moment to settle
+    }
   }
   if(!g.available){ $('gpuName').textContent = g.reason || t('gpuUnavailable'); return; }
   $('gpuName').textContent = g.name;
