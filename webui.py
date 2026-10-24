@@ -1835,6 +1835,7 @@ $('songTemplate').addEventListener('change', e=>{
 function fmtGB(mib){ return (mib/1024).toFixed(1); }
 function gpuColor(frac){ return frac<0.6 ? '#22c55e' : (frac<0.85 ? '#eab308' : '#ef4444'); }
 let gpuFailCount = 0;
+let gpuWasOffline = false;
 function gpuMarkOffline(){
   $('gpuName').textContent = t('gpuOffline');
   $('gpuBarFill').style.width = '0%';
@@ -1852,10 +1853,23 @@ async function refreshGpu(){
   }catch(e){
     // server unreachable (e.g. after Nuke-all) — show offline state instead
     // of leaving stale numbers on screen
-    if(++gpuFailCount >= 2) gpuMarkOffline();
+    if(++gpuFailCount >= 2){ gpuWasOffline = true; gpuMarkOffline(); }
     return;
   }
   gpuFailCount = 0;
+  // Server is back (e.g. after restart following Nuke-all): refresh options
+  // and profiles, then restore the persisted form state — the page never
+  // loses its text or selections across a server restart.
+  if(gpuWasOffline){
+    gpuWasOffline = false;
+    try{
+      loadOptions().then(()=>{
+        const s = localStorage.getItem('yue_last_state');
+        if(s){ try{ applyState(JSON.parse(s)); }catch{} }
+        refreshProfiles();
+      });
+    }catch{}
+  }
   if(!g.available){ $('gpuName').textContent = g.reason || t('gpuUnavailable'); return; }
   $('gpuName').textContent = g.name;
   const frac = g.mem_total>0 ? g.mem_used/g.mem_total : 0;
@@ -1894,10 +1908,28 @@ $('gpuKillBtn').addEventListener('click', async ()=>{
 $('gpuNukeBtn').addEventListener('click', async ()=>{
   if(!confirm(t('gpuNukeConfirm'))) return;
   const btn = $('gpuNukeBtn'); btn.disabled = true;
+  try{ localStorage.setItem('yue_last_state', JSON.stringify(collectState())); }catch{}
   try{ await fetch('/api/gpu/kill?nuke=1',{method:'POST'}); }catch(e){}
+  gpuWasOffline = true;
   gpuMarkOffline();
   alert(t('gpuNukeMsg'));
   btn.disabled = false;
+});
+
+// ---- Continuous state persistence: nothing typed in the UI is ever lost,
+// even across a server restart (page is never reloaded for Nuke-all) ----
+let _stateSaveTimer = null;
+function scheduleStateSave(){
+  clearTimeout(_stateSaveTimer);
+  _stateSaveTimer = setTimeout(()=>{
+    try{ localStorage.setItem('yue_last_state', JSON.stringify(collectState())); }catch{}
+  }, 300);
+}
+document.addEventListener('input', scheduleStateSave);
+document.addEventListener('change', scheduleStateSave);
+document.addEventListener('click', scheduleStateSave);
+window.addEventListener('beforeunload', ()=>{
+  try{ localStorage.setItem('yue_last_state', JSON.stringify(collectState())); }catch{}
 });
 setInterval(refreshGpu, 2500);
 refreshGpu();
