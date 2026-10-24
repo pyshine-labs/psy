@@ -545,10 +545,23 @@ def gpu_stats():
 
 
 @app.post("/api/gpu/kill")
-def gpu_kill():
-    """Free VRAM: clear this server's CUDA cache, then force-kill other
-    python compute processes (desktop apps and this server are protected)."""
-    # 1) Self-cleanup: release cached CUDA blocks held by finished jobs.
+def gpu_kill(nuke: bool = False):
+    """Free VRAM: cancel running generations, clear this server's CUDA
+    cache, kill other python compute processes. nuke=True additionally
+    stops this server itself (releases its whole CUDA context; re-run
+    run.bat to start again)."""
+    # 1) Ask running generations to cancel (pipeline checks between tokens)
+    cancelled_jobs = 0
+    try:
+        for j in list(JOBS.values()):
+            ev = j.get("cancel")
+            th = j.get("thread")
+            if ev is not None and getattr(th, "is_alive", lambda: False)():
+                ev.set()
+                cancelled_jobs += 1
+    except Exception:
+        pass
+    # 2) Self-cleanup: release cached CUDA blocks held by finished jobs.
     #    Only touch torch if it is already imported — importing it fresh
     #    would create a new CUDA context (~0.5 GiB) and defeat the purpose.
     freed_cache = None
@@ -570,7 +583,7 @@ def gpu_kill():
                     freed_cache = round(before - torch.cuda.memory_reserved() / 2**20, 1)
             except Exception:
                 freed_cache = None
-    # 2) Kill other python compute processes.
+    # 3) Kill other python compute processes.
     if not _NVIDIA_SMI:
         return JSONResponse({"error": "nvidia-smi not available"}, status_code=400)
     protected = {os.getpid(), os.getppid()}
@@ -596,8 +609,18 @@ def gpu_kill():
                 killed.append(p)
             except Exception as exc:
                 failed.append({**p, "error": str(exc)[:120]})
+    # 4) Nuke mode: hard-exit this server so its CUDA context is released.
+    #    Delayed so the HTTP response reaches the browser first.
+    if nuke:
+        def _suicide():
+            try:
+                time.sleep(1.5)
+            finally:
+                os._exit(0)
+        threading.Thread(target=_suicide, daemon=True).start()
     return {"killed": killed, "failed": failed, "skipped": skipped,
-            "freed_cache_mib": freed_cache, "busy": busy}
+            "freed_cache_mib": freed_cache, "busy": busy,
+            "cancelled_jobs": cancelled_jobs, "nuke": nuke}
 
 
 # --------------------------------------------------------------------------- #
@@ -977,6 +1000,7 @@ We will sing beyond the night</textarea>
     </div>
     <div id="gpuProcList" class="hint" style="margin-top:6px"></div>
     <button class="secondary" id="gpuKillBtn" style="margin-top:8px" data-i18n="btnKillGpu">Free VRAM (kill GPU processes)</button>
+    <button class="secondary" id="gpuNukeBtn" style="margin-top:6px;border-color:#ef4444;color:#f87171" data-i18n="btnNukeGpu">Nuke all VRAM (stops this app)</button>
     <p class="hint" data-i18n="hintKillGpu">Ends other python compute processes holding GPU memory (desktop apps are never touched; this WebUI is protected).</p>
 
     <div class="actions">
@@ -1035,9 +1059,12 @@ const I18N = {
     hGpu:'GPU Monitor', btnKillGpu:'Free VRAM (kill GPU processes)',
     hintKillGpu:'Ends other python compute processes holding GPU memory (desktop apps are never touched; this WebUI is protected).',
     gpuUsed:'used', gpuUtil:'GPU util', gpuNoProcs:'No processes using the GPU',
-    gpuSelf:'this app', gpuKillConfirm:'Kill all GPU processes except this WebUI?',
+    gpuSelf:'this app', gpuKillConfirm:'Cancel any running generation, free this app\u2019s VRAM cache, and kill other python GPU processes?',
     gpuKilled:'Killed:', gpuFailed:'failed:', gpuUnavailable:'GPU stats unavailable',
-    gpuFreed:'VRAM cache freed:', gpuNothingToKill:'No other python GPU processes found \u2014 remaining VRAM is held by desktop apps (close them manually).',
+    gpuFreed:'VRAM cache freed:', gpuCancelled:'Generation(s) cancelled:', gpuNothingToKill:'No other python GPU processes found \u2014 remaining VRAM is held by desktop apps (close them manually).',
+    btnNukeGpu:'Nuke all VRAM (stops this app)',
+    gpuNukeConfirm:'This cancels the running song, frees ALL VRAM held by this WebUI (the app will close), and kills other python GPU processes. Re-run run.bat afterwards. Continue?',
+    gpuNukeMsg:'All VRAM released. Re-run run.bat to start the WebUI again.',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -1087,9 +1114,12 @@ const I18N = {
     hGpu:'GPU 监控', btnKillGpu:'一键释放显存（结束 GPU 进程）',
     hintKillGpu:'结束其他占用显存的 python 计算进程（桌面应用不受影响；本 WebUI 受保护）。',
     gpuUsed:'已用', gpuUtil:'GPU 利用率', gpuNoProcs:'当前没有进程占用 GPU',
-    gpuSelf:'本应用', gpuKillConfirm:'结束除本 WebUI 外的所有 GPU 进程？',
+    gpuSelf:'本应用', gpuKillConfirm:'中止正在生成的歌曲、释放本应用显存缓存，并结束其他 python GPU 进程？',
     gpuKilled:'已结束：', gpuFailed:'失败：', gpuUnavailable:'无法获取 GPU 信息',
-    gpuFreed:'显存缓存已释放：', gpuNothingToKill:'未发现其他 python GPU 进程 \u2014 剩余显存由桌面应用占用（请手动关闭）。',
+    gpuCancelled:'已中止生成任务：', gpuFreed:'显存缓存已释放：', gpuNothingToKill:'未发现其他 python GPU 进程 \u2014 剩余显存由桌面应用占用（请手动关闭）。',
+    btnNukeGpu:'彻底释放显存（会关闭本应用）',
+    gpuNukeConfirm:'将中止正在生成的歌曲、释放本 WebUI 占用的全部显存（应用会关闭），并结束其他 python GPU 进程。之后重新运行 run.bat 即可。继续？',
+    gpuNukeMsg:'显存已全部释放。重新运行 run.bat 可再次启动 WebUI。',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
@@ -1830,8 +1860,9 @@ $('gpuKillBtn').addEventListener('click', async ()=>{
       const r = await (await fetch('/api/gpu/kill',{method:'POST'})).json();
       if(r.error){ alert(r.error); }
       else{
-        const k=(r.killed||[]).length, f=(r.failed||[]).length;
+        const k=(r.killed||[]).length, f=(r.failed||[]).length, c=(r.cancelled_jobs||0);
         let msg = t('gpuKilled')+' '+k+(f?(' · '+t('gpuFailed')+' '+f):'');
+        if(c>0){ msg += '\n'+t('gpuCancelled')+' '+c; }
         if(r.freed_cache_mib!=null && r.freed_cache_mib>0){ msg += '\n'+t('gpuFreed')+' '+r.freed_cache_mib+' MiB'; }
         if(k===0 && !(r.freed_cache_mib>0)){ msg += '\n'+t('gpuNothingToKill'); }
         alert(msg);
@@ -1839,6 +1870,13 @@ $('gpuKillBtn').addEventListener('click', async ()=>{
     }catch(e){ alert('Kill request failed: '+e); }
   btn.disabled = false;
   refreshGpu(); setTimeout(refreshGpu, 2000);
+});
+$('gpuNukeBtn').addEventListener('click', async ()=>{
+  if(!confirm(t('gpuNukeConfirm'))) return;
+  const btn = $('gpuNukeBtn'); btn.disabled = true;
+  try{ await fetch('/api/gpu/kill?nuke=1',{method:'POST'}); }catch(e){}
+  alert(t('gpuNukeMsg'));
+  btn.disabled = false;
 });
 setInterval(refreshGpu, 2500);
 refreshGpu();
