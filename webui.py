@@ -998,7 +998,7 @@ We will sing beyond the night</textarea>
     <div class="grid2">
       <div>
         <label for="budget" data-i18n="labelBudget">Memory budget (GiB)</label>
-        <input id="budget" type="number" value="24" min="4" max="64"/>
+        <input id="budget" type="number" value="24" min="4" max="64" data-auto="1"/>
       </div>
       <div>
         <label for="offloadAr" data-i18n="labelOffload">Offload AR to CPU</label>
@@ -1245,7 +1245,8 @@ function collectState(){
     budget: $('budget').value, offloadAr: $('offloadAr').value,
   };
 }
-function applyState(s){
+function applyState(s, fromProfile){
+  const fromProfile_ = !!fromProfile;
   if(!s || typeof s !== 'object') return;
   if(s.uiLang && I18N[s.uiLang]){ $('uiLang').value = s.uiLang; applyLang(s.uiLang); }
   if(s.lang) $('selLang').value = s.lang;
@@ -1279,7 +1280,10 @@ function applyState(s){
   if(s.backend) $('backend').value = s.backend;
   if(s.quantization) $('quantization').value = s.quantization;
   if(s.device) $('device').value = s.device;
-  if(s.budget) $('budget').value = s.budget;
+  if(s.budget){
+    $('budget').value = s.budget;
+    if(fromProfile_) $('budget').dataset.auto = '0'; // profile pins the budget
+  }
   if(s.offloadAr) $('offloadAr').value = String(s.offloadAr);
 }
 
@@ -1320,7 +1324,7 @@ $('profileLoadBtn').addEventListener('click', async ()=>{
     const r = await fetch('/api/profiles/'+encodeURIComponent(name));
     if(!r.ok){ alert(t('loadFailed')); return; }
     const j = await r.json();
-    applyState(j.data || j);
+    applyState(j.data || j, true);
     localStorage.setItem('yue_last_state', JSON.stringify(collectState()));
   }catch(e){ alert(t('loadFailed') + ': ' + e); }
 });
@@ -1912,6 +1916,12 @@ async function refreshGpu(){
     return;
   }
   gpuFailCount = 0;
+  // Default the memory budget to the detected GPU VRAM until the user
+  // (or a loaded profile) explicitly sets it.
+  const bEl = $('budget');
+  if(g && g.total_mib && bEl.dataset.auto === '1'){
+    bEl.value = Math.max(4, Math.round(g.total_mib/1024));
+  }
   // Server is back (e.g. after restart following Nuke-all): refresh options
   // and profiles, then restore the persisted form state — the page never
   // loses its text or selections across a server restart.
@@ -1992,6 +2002,9 @@ document.addEventListener('click', scheduleStateSave);
 window.addEventListener('beforeunload', ()=>{
   try{ localStorage.setItem('yue_last_state', JSON.stringify(collectState())); }catch{}
 });
+// Once the user edits the memory budget by hand it is no longer auto-synced
+// to the detected GPU VRAM.
+$('budget').addEventListener('input', ()=>{ $('budget').dataset.auto = '0'; });
 setInterval(refreshGpu, 2500);
 refreshGpu();
 
