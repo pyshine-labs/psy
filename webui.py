@@ -546,7 +546,31 @@ def gpu_stats():
 
 @app.post("/api/gpu/kill")
 def gpu_kill():
-    """Force-kill every GPU compute process except this server (and parent)."""
+    """Free VRAM: clear this server's CUDA cache, then force-kill other
+    python compute processes (desktop apps and this server are protected)."""
+    # 1) Self-cleanup: release cached CUDA blocks held by finished jobs.
+    #    Only touch torch if it is already imported — importing it fresh
+    #    would create a new CUDA context (~0.5 GiB) and defeat the purpose.
+    freed_cache = None
+    busy = False
+    try:
+        busy = any(getattr(j.get("thread"), "is_alive", lambda: False)()
+                   for j in JOBS.values())
+    except Exception:
+        pass
+    if not busy:
+        torch = sys.modules.get("torch")
+        if torch is not None:
+            try:
+                if torch.cuda.is_available():
+                    import gc as _gc
+                    before = torch.cuda.memory_reserved() / 2**20
+                    _gc.collect()
+                    torch.cuda.empty_cache()
+                    freed_cache = round(before - torch.cuda.memory_reserved() / 2**20, 1)
+            except Exception:
+                freed_cache = None
+    # 2) Kill other python compute processes.
     if not _NVIDIA_SMI:
         return JSONResponse({"error": "nvidia-smi not available"}, status_code=400)
     protected = {os.getpid(), os.getppid()}
@@ -572,7 +596,8 @@ def gpu_kill():
                 killed.append(p)
             except Exception as exc:
                 failed.append({**p, "error": str(exc)[:120]})
-    return {"killed": killed, "failed": failed, "skipped": skipped}
+    return {"killed": killed, "failed": failed, "skipped": skipped,
+            "freed_cache_mib": freed_cache, "busy": busy}
 
 
 # --------------------------------------------------------------------------- #
@@ -1012,6 +1037,7 @@ const I18N = {
     gpuUsed:'used', gpuUtil:'GPU util', gpuNoProcs:'No processes using the GPU',
     gpuSelf:'this app', gpuKillConfirm:'Kill all GPU processes except this WebUI?',
     gpuKilled:'Killed:', gpuFailed:'failed:', gpuUnavailable:'GPU stats unavailable',
+    gpuFreed:'VRAM cache freed:', gpuNothingToKill:'No other python GPU processes found \u2014 remaining VRAM is held by desktop apps (close them manually).',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
     hModels:'Models & Backend', labelModel:'Model', labelVae:'VAE', labelBackend:'Backend',
@@ -1063,6 +1089,7 @@ const I18N = {
     gpuUsed:'已用', gpuUtil:'GPU 利用率', gpuNoProcs:'当前没有进程占用 GPU',
     gpuSelf:'本应用', gpuKillConfirm:'结束除本 WebUI 外的所有 GPU 进程？',
     gpuKilled:'已结束：', gpuFailed:'失败：', gpuUnavailable:'无法获取 GPU 信息',
+    gpuFreed:'显存缓存已释放：', gpuNothingToKill:'未发现其他 python GPU 进程 \u2014 剩余显存由桌面应用占用（请手动关闭）。',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
     hModels:'模型与后端', labelModel:'模型', labelVae:'VAE 解码器', labelBackend:'后端',
@@ -1800,13 +1827,16 @@ $('gpuKillBtn').addEventListener('click', async ()=>{
   if(!confirm(t('gpuKillConfirm'))) return;
   const btn = $('gpuKillBtn'); btn.disabled = true;
   try{
-    const r = await (await fetch('/api/gpu/kill',{method:'POST'})).json();
-    if(r.error){ alert(r.error); }
-    else{
-      const k=(r.killed||[]).length, f=(r.failed||[]).length;
-      alert(t('gpuKilled')+' '+k+(f?(' · '+t('gpuFailed')+' '+f):''));
-    }
-  }catch(e){ alert('Kill request failed: '+e); }
+      const r = await (await fetch('/api/gpu/kill',{method:'POST'})).json();
+      if(r.error){ alert(r.error); }
+      else{
+        const k=(r.killed||[]).length, f=(r.failed||[]).length;
+        let msg = t('gpuKilled')+' '+k+(f?(' · '+t('gpuFailed')+' '+f):'');
+        if(r.freed_cache_mib!=null && r.freed_cache_mib>0){ msg += '\n'+t('gpuFreed')+' '+r.freed_cache_mib+' MiB'; }
+        if(k===0 && !(r.freed_cache_mib>0)){ msg += '\n'+t('gpuNothingToKill'); }
+        alert(msg);
+      }
+    }catch(e){ alert('Kill request failed: '+e); }
   btn.disabled = false;
   refreshGpu(); setTimeout(refreshGpu, 2000);
 });
