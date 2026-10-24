@@ -1281,8 +1281,12 @@ function applyState(s, fromProfile){
   if(s.quantization) $('quantization').value = s.quantization;
   if(s.device) $('device').value = s.device;
   if(s.budget){
-    $('budget').value = s.budget;
-    if(fromProfile_) $('budget').dataset.auto = '0'; // profile pins the budget
+    // While budget auto-syncs to detected VRAM, don't let a stale saved
+    // value (e.g. old hardcoded 24) overwrite it. Profiles always win.
+    if(fromProfile_ || $('budget').dataset.auto !== '1'){
+      $('budget').value = s.budget;
+      if(fromProfile_) $('budget').dataset.auto = '0';
+    }
   }
   if(s.offloadAr) $('offloadAr').value = String(s.offloadAr);
 }
@@ -1919,8 +1923,8 @@ async function refreshGpu(){
   // Default the memory budget to the detected GPU VRAM until the user
   // (or a loaded profile) explicitly sets it.
   const bEl = $('budget');
-  if(g && g.total_mib && bEl.dataset.auto === '1'){
-    bEl.value = Math.max(4, Math.round(g.total_mib/1024));
+  if(g && g.mem_total && bEl.dataset.auto === '1'){
+    bEl.value = Math.max(4, Math.round(g.mem_total/1024));
   }
   // Server is back (e.g. after restart following Nuke-all): refresh options
   // and profiles, then restore the persisted form state — the page never
