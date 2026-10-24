@@ -548,8 +548,9 @@ def gpu_stats():
 def gpu_kill(nuke: bool = False):
     """Free VRAM: cancel running generations, clear this server's CUDA
     cache, kill other python compute processes. nuke=True additionally
-    stops this server itself (releases its whole CUDA context; re-run
-    run.bat to start again)."""
+    stops this server itself (releases its whole CUDA context) and then
+    automatically relaunches it on the same host/port, so remote clients
+    do not need to run run.bat."""
     # 1) Ask running generations to cancel (pipeline checks between tokens)
     cancelled_jobs = 0
     try:
@@ -609,13 +610,45 @@ def gpu_kill(nuke: bool = False):
                 killed.append(p)
             except Exception as exc:
                 failed.append({**p, "error": str(exc)[:120]})
-    # 4) Nuke mode: hard-exit this server so its CUDA context is released.
-    #    Delayed so the HTTP response reaches the browser first.
+    # 4) Nuke mode: hard-exit this server so its CUDA context is released,
+    #    then automatically start a fresh server on the same host/port.
+    #    Remote clients cannot run run.bat themselves, so the relaunch is
+    #    done here — the UI just shows "restarting" and auto-recovers.
     if nuke:
         def _suicide():
             try:
-                time.sleep(1.5)
+                argv = sys.argv
+                host, port = "127.0.0.1", 7860
+                if "--host" in argv:
+                    host = argv[argv.index("--host") + 1]
+                if "--port" in argv:
+                    port = argv[argv.index("--port") + 1]
+                script = str(Path(sys.argv[0]).resolve())
+                cwd = str(Path.cwd())
+                # Detached helper: waits until the old server stops accepting
+                # connections, then starts a new one in its own console.
+                helper = (
+                    "import socket,subprocess,sys,time\n"
+                    f"HOST,PORT={host!r},{int(port)}\n"
+                    f"SCRIPT=r{script!r}\nCWD=r{cwd!r}\n"
+                    "for _ in range(60):\n"
+                    "    s=socket.socket()\n"
+                    "    r=s.connect_ex((HOST,PORT))\n"
+                    "    s.close()\n"
+                    "    if r!=0:\n"
+                    "        break\n"
+                    "    time.sleep(0.5)\n"
+                    "subprocess.Popen([sys.executable,SCRIPT,'--host',HOST,"
+                    "'--port',str(PORT)],cwd=CWD,\n"
+                    "    creationflags=0x00000010)\n"  # CREATE_NEW_CONSOLE
+                )
+                if os.name == "nt":
+                    import subprocess as _sp
+                    _sp.Popen([sys.executable, "-c", helper],
+                              creationflags=0x00000008 | 0x00000200,
+                              cwd=cwd)  # DETACHED_PROCESS | NEW_PROCESS_GROUP
             finally:
+                time.sleep(1.5)
                 os._exit(0)
         threading.Thread(target=_suicide, daemon=True).start()
     return {"killed": killed, "failed": failed, "skipped": skipped,
@@ -1062,11 +1095,11 @@ const I18N = {
     gpuSelf:'this app', gpuKillConfirm:'Cancel any running generation, free this app\u2019s VRAM cache, and kill other python GPU processes?',
     gpuKilled:'Killed:', gpuFailed:'failed:', gpuUnavailable:'GPU stats unavailable',
     gpuFreed:'VRAM cache freed:', gpuCancelled:'Generation(s) cancelled:', gpuNothingToKill:'No other python GPU processes found \u2014 remaining VRAM is held by desktop apps (close them manually).',
-    btnNukeGpu:'Nuke all VRAM (stops this app)',
-    gpuNukeConfirm:'This cancels the running song, frees ALL VRAM held by this WebUI (the app will close), and kills other python GPU processes. Re-run run.bat afterwards. Continue?',
-    gpuNukeMsg:'All VRAM released. Re-run run.bat to start the WebUI again.',
-    gpuOffline:'Server offline — re-run run.bat to restart',
-    serverOfflineWait:'Server offline — your inputs are saved. Re-run run.bat; the job will auto-resubmit when the server is back.',
+    btnNukeGpu:'Nuke all VRAM (auto-restarts the app)',
+    gpuNukeConfirm:'This cancels the running song, frees ALL VRAM held by this WebUI (the app will briefly close), and kills other python GPU processes. The server restarts automatically in a few seconds. Continue?',
+    gpuNukeMsg:'All VRAM released. The server is restarting automatically — this page will reconnect in a few seconds.',
+    gpuOffline:'Server restarting — reconnecting automatically…',
+    serverOfflineWait:'Server is restarting to free VRAM — your inputs are saved and the job will auto-resubmit when it is back. No action needed.',
     resubmitting:'Server is back — resubmitting your generation…',
     labelCot:'Chain-of-Thought mode', labelSeed:'Seed (blank = 831001)',
     labelCfg:'CFG scale (blank = default)', labelAbc:'External ABC score (optional)',
@@ -1120,11 +1153,11 @@ const I18N = {
     gpuSelf:'本应用', gpuKillConfirm:'中止正在生成的歌曲、释放本应用显存缓存，并结束其他 python GPU 进程？',
     gpuKilled:'已结束：', gpuFailed:'失败：', gpuUnavailable:'无法获取 GPU 信息',
     gpuCancelled:'已中止生成任务：', gpuFreed:'显存缓存已释放：', gpuNothingToKill:'未发现其他 python GPU 进程 \u2014 剩余显存由桌面应用占用（请手动关闭）。',
-    btnNukeGpu:'彻底释放显存（会关闭本应用）',
-    gpuNukeConfirm:'将中止正在生成的歌曲、释放本 WebUI 占用的全部显存（应用会关闭），并结束其他 python GPU 进程。之后重新运行 run.bat 即可。继续？',
-    gpuNukeMsg:'显存已全部释放。重新运行 run.bat 可再次启动 WebUI。',
-    gpuOffline:'服务器已离线 — 重新运行 run.bat 启动',
-    serverOfflineWait:'服务器离线 — 输入已保存。重新运行 run.bat，服务器恢复后将自动重新提交任务。',
+    btnNukeGpu:'彻底释放显存（应用将自动重启）',
+    gpuNukeConfirm:'将中止正在生成的歌曲、释放本 WebUI 占用的全部显存（应用会短暂关闭），并结束其他 python GPU 进程。服务器将在几秒后自动重启。继续？',
+    gpuNukeMsg:'显存已全部释放。服务器正在自动重启 — 本页面将在几秒内自动恢复连接。',
+    gpuOffline:'服务器重启中 — 正在自动恢复连接…',
+    serverOfflineWait:'服务器正在重启以释放显存 — 输入已保存，恢复后将自动重新提交任务，无需任何操作。',
     resubmitting:'服务器已恢复 — 正在重新提交生成任务…',
     labelCot:'思维链模式', labelSeed:'随机种子（留空 = 831001）',
     labelCfg:'CFG 强度（留空 = 默认）', labelAbc:'外部 ABC 乐谱（可选）',
